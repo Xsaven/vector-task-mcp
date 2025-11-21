@@ -1,7 +1,7 @@
-# Vector Memory MCP Server
+# Vector Task MCP Server
 
 ## Project Overview
-MCP (Model Context Protocol) Server для векторної пам'яті з використанням sqlite-vec для семантичного пошуку.
+MCP (Model Context Protocol) Server для управління задачами з використанням sqlite-vec для семантичного пошуку.
 
 ## Technology Stack
 - **Python**: 3.11.8 (requires >= 3.10)
@@ -23,23 +23,26 @@ MCP (Model Context Protocol) Server для векторної пам'яті з �
 - `claude-desktop-config.example.json` - Claude Desktop configuration template
 - `src/models.py` - Data models and configuration
 - `src/security.py` - Security validation and sanitization
-- `src/memory_store.py` - Vector memory storage operations
-- `src/embeddings.py` - Embedding generation
-- `memory/` - SQLite database storage directory
+- `src/task_store.py` - Vector task storage operations
+- `tasks.db` - SQLite database for tasks
 
 ## How to Run
 
 ### Standalone
 ```bash
-# On Apple Silicon (M1/M2/M3) - use run-arm64.sh script
-./run-arm64.sh --working-dir /your/working/directory
+# Using uv (requires Python with SQLite extensions support)
+uv run main.py --working-dir ./
 
 # Alternative with conda Python (has SQLite extensions support)
 ~/miniconda3/envs/vector-mcp/bin/python main.py --working-dir ./
-
-# Using uv (requires Python with SQLite extensions support)
-uv run main.py --working-dir ./
 ```
+
+### Configuration Options
+
+- `--working-dir` - Working directory for task database (required, default: current directory)
+  - Specifies the project directory where the `memory/` subdirectory will be created
+  - Database will be stored at `{working-dir}/memory/tasks.db`
+  - Example: `--working-dir /path/to/project` → database at `/path/to/project/memory/tasks.db`
 
 **⚠️ IMPORTANT for macOS Users:**
 - Standard Python from python.org does NOT support SQLite loadable extensions
@@ -53,32 +56,61 @@ uv run main.py --working-dir ./
 ```json
 {
   "mcpServers": {
-    "vector-memory": {
-      "command": "/absolute/path/to/run-arm64.sh",
-      "args": ["--working-dir", "/your/project/path"]
+    "vector-task": {
+      "command": "uv",
+      "args": [
+        "run",
+        "/absolute/path/to/main.py",
+        "--working-dir",
+        "/your/project/path"
+      ]
     }
   }
 }
 ```
 
-**ВАЖЛИВО:** Використовуй абсолютні шляхи, не відносні!
+**ВАЖЛИВО:**
+- Використовуй абсолютні шляхи, не відносні!
 
 ## Database Architecture
-- `memory_metadata` - Метадані спогадів (content, category, tags, timestamps)
-- `memory_vectors` - Векторна таблиця (vec0 virtual table)
-- Індекси на category, created_at, content_hash, access_count
+- `task_metadata` - Метадані задач (title, content, status, priority, tags, timestamps)
+- `task_vectors` - Векторна таблиця (vec0 virtual table)
+- Індекси на status, priority, created_at, content_hash
+
+## Task Management Features
+- **Task Lifecycle**: pending → in_progress → completed/stopped
+- **Priorities**: low, medium, high, critical
+- **Hierarchical Tasks**: Parent-child task relationships
+- **Smart Search**: Semantic search using vector embeddings
+- **Tags**: Organize tasks with custom tags
+- **Comments**: Add notes to tasks without changing content
+
+## Available MCP Tools
+- `task_create` - Create new task
+- `task_create_bulk` - Create multiple tasks
+- `task_update` - Update task fields
+- `task_delete` / `task_delete_bulk` - Delete tasks
+- `task_list` - List/search tasks with filters
+- `task_get` - Get specific task by ID
+- `task_last` - Get last created task
+- `task_next` - Get next task to work on
+- `task_start` / `task_finish` / `task_stop` / `task_resume` - Task lifecycle
+- `task_comment` - Add/update task comments
+- `task_add_tag` / `task_remove_tag` / `task_get_all_tags` - Tag management
+- `task_stats` - Get task statistics
 
 ## Important Notes
 - **sqlite-vec** працює як extension для SQLite, завантажується через `sqlite_vec.load(conn)`
 - **uv** використовується замість venv - він керує ізольованим оточенням автоматично
 - Векторний пошук використовує 384-вимірні embeddings
-- База даних: `./memory/vector_memory.db`
+- База даних: `tasks.db` (location depends on `--working-dir`, see Configuration Options)
 
 ## Security Features
 - Working directory validation
 - Input sanitization
 - Content hash для дедуплікації
 - Resource limits для захисту від DoS
+- Bulk operation limits (50 creates, 100 deletes max)
 
 ## Development Notes
 - Проект налаштований як uv script з inline metadata (/// script ///)

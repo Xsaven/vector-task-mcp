@@ -1,45 +1,44 @@
 """
-Vector Memory MCP Server - Core Package
-=======================================
+Vector Task MCP Server - Core Package
+======================================
 
-This package provides vector-based memory capabilities for Claude Desktop
+This package provides vector-based task management capabilities for Claude Desktop
 using sqlite-vec and sentence-transformers.
 
 Modules:
     models: Data models and type definitions
     security: Security utilities and validation
     embeddings: Sentence transformer wrapper (requires sentence-transformers)
-    memory_store: SQLite-vec operations and storage (requires sqlite-vec)
+    task_store: SQLite-vec operations and task storage (requires sqlite-vec)
 """
 
 __version__ = "1.0.0"
-__author__ = "Vector Memory MCP Server"
+__author__ = "Vector Task MCP Server"
 
 # Core modules that don't require external dependencies
-from .models import MemoryEntry, MemoryCategory, SearchResult, Config
+from .models import Task, TaskStatus, Priority, TaskStats, Config
 from .security import SecurityError, validate_working_dir, sanitize_input
 
 # Optional imports that require external dependencies
-# These are imported lazily to avoid import errors when dependencies aren't available
-
-def get_embedding_model():
+def get_embedding_model(model_name: str):
     """Get embedding model (requires sentence-transformers)"""
-    from .embeddings import EmbeddingModel
-    return EmbeddingModel
+    from .embeddings import get_embedding_model as _get_model
+    return _get_model(model_name)
 
-def get_vector_memory_store():
-    """Get vector memory store (requires sqlite-vec)"""
-    from .memory_store import VectorMemoryStore
-    return VectorMemoryStore
+def get_task_store(db_path, embedding_model_name=None):
+    """Get task store (requires sqlite-vec)"""
+    from .task_store import TaskStore
+    return TaskStore(db_path, embedding_model_name)
 
 __all__ = [
-    "MemoryEntry",
-    "MemoryCategory", 
-    "SearchResult",
+    "Task",
+    "TaskStatus",
+    "Priority",
+    "TaskStats",
     "Config",
     "SecurityError",
     "validate_working_dir",
     "sanitize_input",
     "get_embedding_model",
-    "get_vector_memory_store"
+    "get_task_store"
 ]

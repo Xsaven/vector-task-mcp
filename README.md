@@ -1,19 +1,19 @@
-# Vector Memory MCP Server
+# Vector Task MCP Server
 
-A **secure, vector-based memory server** for Claude Desktop using `sqlite-vec` and `sentence-transformers`. This MCP server provides persistent semantic memory capabilities that enhance AI coding assistants by remembering and retrieving relevant coding experiences, solutions, and knowledge.
+A **secure, vector-based task management server** for Claude Desktop using `sqlite-vec` and `sentence-transformers`. This MCP server provides intelligent task tracking with semantic search capabilities that enhance AI coding assistants by organizing and retrieving development tasks efficiently.
 
 ## ✨ Features
 
-- **🔍 Semantic Search**: Vector-based similarity search using 384-dimensional embeddings
+- **🔍 Semantic Search**: Vector-based task search using 384-dimensional embeddings
 - **💾 Persistent Storage**: SQLite database with vector indexing via `sqlite-vec`
-- **🏷️ Smart Organization**: Categories and tags for better memory organization
+- **🏷️ Smart Organization**: Priorities, tags, and subtasks for better task management
+- **📋 Task Lifecycle**: Track tasks from pending → in_progress → completed/stopped
 - **🔒 Security First**: Input validation, path sanitization, and resource limits
 - **⚡ High Performance**: Fast embedding generation with `sentence-transformers`
-- **🧹 Auto-Cleanup**: Intelligent memory management and cleanup tools
-- **📊 Rich Statistics**: Comprehensive memory database analytics
-- **🔄 Automatic Deduplication**: SHA-256 content hashing prevents storing duplicate memories
-- **📈 Access Tracking**: Monitors memory usage with access counts and timestamps for optimization
-- **🧠 Smart Cleanup Algorithm**: Prioritizes memory retention based on recency, access patterns, and importance
+- **📊 Rich Statistics**: Comprehensive task analytics and progress tracking
+- **🔄 Hierarchical Tasks**: Support for parent-child task relationships
+- **📈 Priority Management**: Organize tasks by priority (low, medium, high, critical)
+- **💬 Task Comments**: Add notes and updates to tasks without changing content
 
 ## 🛠️ Technical Stack
 
@@ -29,7 +29,7 @@ A **secure, vector-based memory server** for Claude Desktop using `sqlite-vec` a
 ## 📁 Project Structure
 
 ```
-vector-memory-mcp/
+vector-task-mcp/
 ├── main.py                              # Main MCP server entry point
 ├── README.md                            # This documentation
 ├── requirements.txt                     # Python dependencies
@@ -41,8 +41,7 @@ vector-memory-mcp/
 │   ├── __init__.py                    # Package initialization
 │   ├── models.py                      # Data models & configuration
 │   ├── security.py                    # Security validation & sanitization
-│   ├── embeddings.py                  # Sentence-transformers wrapper
-│   └── memory_store.py                # SQLite-vec operations
+│   └── task_store.py                  # SQLite-vec task operations
 │
 └── .gitignore                         # Git exclusions
 ```
@@ -52,7 +51,7 @@ vector-memory-mcp/
 This project is organized for clarity and ease of use:
 
 - **`main.py`** - Start here! Main server entry point
-- **`src/`** - Core implementation (security, embeddings, memory store)
+- **`src/`** - Core implementation (security, task storage)
 - **`claude-desktop-config.example.json`** - Configuration template
 
 **New here?** Start with `main.py` and `claude-desktop-config.example.json`
@@ -87,17 +86,17 @@ The easiest way to use this MCP server - no cloning or setup required!
 
 ```bash
 # Run without installation (like npx)
-uvx vector-memory-mcp --working-dir /path/to/your/project
+uvx vector-task-mcp --working-dir /path/to/your/project
 ```
 
 **Claude Desktop Configuration** (using uvx):
 ```json
 {
   "mcpServers": {
-    "vector-memory": {
+    "vector-task": {
       "command": "uvx",
       "args": [
-        "vector-memory-mcp",
+        "vector-task-mcp",
         "--working-dir",
         "/absolute/path/to/your/project"
       ]
@@ -106,14 +105,14 @@ uvx vector-memory-mcp --working-dir /path/to/your/project
 }
 ```
 
-> **Note**: Publishing to PyPI is in progress. See [PUBLISHING.md](PUBLISHING.md) for details.
+> **Note**: Publishing to PyPI is in progress.
 
 #### Option 2: Install from Source (For Development)
 
 1. **Clone the project**:
    ```bash
    git clone <repository-url>
-   cd vector-memory-mcp
+   cd vector-task-mcp
    ```
 
 2. **Install dependencies** (automatic with uv):
@@ -127,7 +126,7 @@ uvx vector-memory-mcp --working-dir /path/to/your/project
 3. **Test the server**:
    ```bash
    # Test with sample working directory
-   uv run main.py --working-dir ./test-memory
+   uv run main.py --working-dir ./test-tasks
    ```
 
 4. **Configure Claude Desktop**:
@@ -142,11 +141,11 @@ uvx vector-memory-mcp --working-dir /path/to/your/project
    ```json
    {
      "mcpServers": {
-       "vector-memory": {
+       "vector-task": {
          "command": "uv",
          "args": [
            "run",
-           "/absolute/path/to/vector-memory-mcp/main.py",
+           "/absolute/path/to/vector-task-mcp/main.py",
            "--working-dir",
            "/your/project/path"
          ]
@@ -155,7 +154,8 @@ uvx vector-memory-mcp --working-dir /path/to/your/project
    }
    ```
 
-   Important: Use absolute paths, not relative paths.
+   Important:
+   - Use absolute paths, not relative paths
 
 5. **Restart Claude Desktop** and look for the MCP integration icon.
 
@@ -163,19 +163,22 @@ uvx vector-memory-mcp --working-dir /path/to/your/project
 
 ```bash
 # Install globally (once published to PyPI)
-pipx install vector-memory-mcp
+pipx install vector-task-mcp
 
 # Run
-vector-memory-mcp --working-dir /path/to/your/project
+vector-task-mcp --working-dir /path/to/your/project
 ```
 
 **Claude Desktop Configuration** (using pipx):
 ```json
 {
   "mcpServers": {
-    "vector-memory": {
-      "command": "vector-memory-mcp",
-      "args": ["--working-dir", "/absolute/path/to/your/project"]
+    "vector-task": {
+      "command": "vector-task-mcp",
+      "args": [
+        "--working-dir",
+        "/absolute/path/to/your/project"
+      ]
     }
   }
 }
@@ -185,106 +188,186 @@ vector-memory-mcp --working-dir /path/to/your/project
 
 ### Available Tools
 
-#### 1. `store_memory` - Store Knowledge
-Store coding experiences, solutions, and insights:
+#### Task Creation & Management
 
+**1. `task_create` - Create New Task**
 ```
-Please store this memory:
-Content: "Fixed React useEffect infinite loop by adding dependency array with [userId, apiKey]. The issue was that the effect was recreating the API call function on every render."
-Category: bug-fix
-Tags: ["react", "useEffect", "infinite-loop", "hooks"]
-```
-
-#### 2. `search_memories` - Semantic Search
-Find relevant memories using natural language:
-
-```
-Search for: "React hook dependency issues"
+Create a new task:
+Title: "Implement user authentication"
+Content: "Add JWT-based authentication with refresh tokens"
+Priority: high
+Tags: ["auth", "backend", "security"]
 ```
 
-#### 3. `list_recent_memories` - Browse Recent
-See what you've stored recently:
-
+**2. `task_create_bulk` - Create Multiple Tasks**
 ```
-Show me my 10 most recent memories
+Create multiple tasks at once for batch operations
 ```
 
-#### 4. `get_memory_stats` - Database Health
-View memory database statistics:
-
+**3. `task_update` - Update Task Fields**
 ```
-Show memory database statistics
-```
-
-#### 5. `clear_old_memories` - Cleanup
-Clean up old, unused memories:
-
-```
-Clear memories older than 30 days, keep max 1000 total
+Update task 123:
+- Status: in_progress
+- Priority: critical
+- Title: "Updated title"
 ```
 
-#### 6. `get_by_memory_id` - Retrieve Specific Memory
-Get full details of a specific memory by its ID:
-
+**4. `task_delete` - Delete Task**
 ```
-Get memory with ID 123
+Delete task with ID 123
 ```
 
-Returns all fields including content, category, tags, timestamps, access count, and metadata.
-
-#### 7. `delete_by_memory_id` - Delete Memory
-Permanently remove a specific memory from the database:
-
+**5. `task_delete_bulk` - Delete Multiple Tasks**
 ```
-Delete memory with ID 123
+Delete tasks: [123, 124, 125]
 ```
 
-Removes the memory from both metadata and vector tables atomically.
+#### Task Retrieval
 
-### Memory Categories
+**6. `task_list` - List Tasks with Filters**
+```
+List tasks:
+- Status: pending
+- Query: "authentication"
+- Limit: 10
+```
 
-| Category | Use Cases |
+**7. `task_get` - Get Specific Task**
+```
+Get task with ID 123
+```
+
+**8. `task_last` - Get Last Created Task**
+```
+Show me the last task I created
+```
+
+**9. `task_next` - Get Next Task to Work On**
+```
+What should I work on next?
+```
+Returns in_progress task if any, otherwise next pending task.
+
+#### Task Lifecycle
+
+**10. `task_start` - Start Task**
+```
+Start working on task 123
+```
+Sets status to in_progress and records start time.
+
+**11. `task_finish` - Complete Task**
+```
+Mark task 123 as completed
+```
+Sets status to completed and records finish time.
+
+**12. `task_stop` - Stop Task**
+```
+Stop working on task 123
+```
+Sets status to stopped (can be resumed later).
+
+**13. `task_resume` - Resume Stopped Task**
+```
+Resume task 123
+```
+Sets status back to in_progress.
+
+#### Task Metadata
+
+**14. `task_comment` - Add/Update Comment**
+```
+Add comment to task 123:
+"Updated API endpoint to use v2, all tests passing"
+```
+
+**15. `task_add_tag` - Add Tag**
+```
+Add tag "urgent" to task 123
+```
+
+**16. `task_remove_tag` - Remove Tag**
+```
+Remove tag "urgent" from task 123
+```
+
+**17. `task_get_all_tags` - List All Tags**
+```
+Show all tags used in tasks
+```
+
+#### Task Statistics
+
+**18. `task_stats` - Get Task Statistics**
+```
+Show task statistics
+```
+
+Returns:
+```json
+{
+  "total_tasks": 45,
+  "by_status": {
+    "pending": 20,
+    "in_progress": 3,
+    "completed": 20,
+    "stopped": 2
+  },
+  "with_subtasks": 5,
+  "next_task_id": 12
+}
+```
+
+### Task Priorities
+
+| Priority | Use Cases |
 |----------|-----------|
-| `code-solution` | Working code snippets, implementations |
-| `bug-fix` | Bug fixes and debugging approaches |
-| `architecture` | System design decisions and patterns |
-| `learning` | New concepts, tutorials, insights |
-| `tool-usage` | Tool configurations, CLI commands |
-| `debugging` | Debugging techniques and discoveries |
-| `performance` | Optimization strategies and results |
-| `security` | Security considerations and fixes |
-| `other` | Everything else |
+| `critical` | Production bugs, security issues, blockers |
+| `high` | Important features, major improvements |
+| `medium` | Regular features, enhancements (default) |
+| `low` | Nice-to-have, refactoring, documentation |
+
+### Task Status Lifecycle
+
+```
+pending → (task_start) → in_progress → (task_finish) → completed
+                             ↓
+                         (task_stop)
+                             ↓
+                          stopped → (task_resume) → in_progress
+```
 
 ## 🔧 Configuration
 
 ### Command Line Arguments
 
-The server requires working directory specification:
-
 ```bash
 # Run with uv (recommended)
 uv run main.py --working-dir /path/to/project
 
-# Working directory is where memory database will be stored
+# Working directory is where task database will be stored
 uv run main.py --working-dir ~/projects/my-project
 ```
+
+**Available Options:**
+- `--working-dir` (required): Directory where task database will be stored
 
 ### Working Directory Structure
 
 ```
 your-project/
-├── memory/
-│   └── vector_memory.db    # SQLite database with vectors
+├── tasks.db                # SQLite database with task vectors
 ├── src/                    # Your project files
 └── other-files...
 ```
 
 ### Security Limits
 
-- **Max memory content**: 10,000 characters
-- **Max total memories**: 10,000 entries
-- **Max search results**: 50 per query
-- **Max tags per memory**: 10 tags
+- **Max task content**: 10,000 characters
+- **Max bulk create**: 50 tasks per operation
+- **Max bulk delete**: 100 tasks per operation
+- **Max tags per task**: 10 tags
 - **Path validation**: Blocks suspicious characters
 
 ## 🎯 Use Cases
@@ -292,95 +375,105 @@ your-project/
 ### For Individual Developers
 
 ```
-# Store a useful code pattern
-"Implemented JWT refresh token logic using axios interceptors"
+# Track feature development
+"Implement OAuth2 integration with Google and GitHub providers"
 
-# Store a debugging discovery  
-"Memory leak in React was caused by missing cleanup in useEffect"
+# Track bug fixes
+"Fix memory leak in WebSocket connection handler"
 
-# Store architecture decisions
-"Chose Redux Toolkit over Context API for complex state management because..."
+# Track learning tasks
+"Learn and implement Redis caching for API responses"
 ```
 
 ### For Team Workflows
 
 ```
-# Store team conventions
-"Team coding style: always use async/await instead of .then() chains"
+# Sprint planning
+"Sprint 23: Redesign user dashboard with new analytics"
 
-# Store deployment procedures
-"Production deployment requires running migration scripts before code deploy"
+# Code review tasks
+"Review PR #456: Database migration for user preferences"
 
-# Store infrastructure knowledge
-"AWS RDS connection pooling settings for high-traffic applications"
+# Infrastructure tasks
+"Set up CI/CD pipeline for automated testing and deployment"
 ```
 
-### For Learning & Growth
+### For Project Management
 
 ```
-# Store learning insights
-"Understanding JavaScript closures: inner functions have access to outer scope"
+# Epic-level tasks
+"User Management System" (parent task)
+  → "User registration" (subtask)
+  → "Email verification" (subtask)
+  → "Password reset" (subtask)
 
-# Store performance discoveries
-"Using React.memo reduced re-renders by 60% in the dashboard component"
+# Milestone tracking
+"v2.0 Release Preparation"
 
-# Store security learnings
-"OWASP Top 10: Always sanitize user input to prevent XSS attacks"
+# Technical debt
+"Refactor legacy authentication module to use new security library"
 ```
 
 ## 🔍 How Semantic Search Works
 
-The server uses **sentence-transformers** to convert your memories into 384-dimensional vectors that capture semantic meaning:
+The server uses **sentence-transformers** to convert tasks into 384-dimensional vectors that capture semantic meaning:
 
 ### Example Searches
 
-| Query | Finds Memories About |
+| Query | Finds Tasks About |
 |-------|---------------------|
-| "authentication patterns" | JWT, OAuth, login systems, session management |
-| "database performance" | SQL optimization, indexing, query tuning, caching |
-| "React state management" | useState, Redux, Context API, state patterns |
-| "API error handling" | HTTP status codes, retry logic, error responses |
+| "authentication" | Login, JWT, OAuth, user verification |
+| "database optimization" | SQL queries, indexing, performance |
+| "frontend components" | React, UI elements, styling |
+| "API integration" | REST endpoints, webhooks, external services |
 
-### Similarity Scoring
+### Hierarchical Tasks
 
-- **0.9+ similarity**: Extremely relevant, almost exact matches
-- **0.8-0.9**: Highly relevant, strong semantic similarity  
-- **0.7-0.8**: Moderately relevant, good contextual match
-- **0.6-0.7**: Somewhat relevant, might be useful
-- **<0.6**: Low relevance, probably not helpful
+Create parent-child relationships:
 
-## 📊 Database Statistics
+```
+# Create parent task
+task_create(title="User Management", content="Complete user system")
+# Returns: task_id = 100
 
-The `get_memory_stats` tool provides comprehensive insights:
+# Create subtasks
+task_create(title="User Registration", content="...", parent_id=100)
+task_create(title="Email Verification", content="...", parent_id=100)
+task_create(title="Password Reset", content="...", parent_id=100)
+```
+
+## 📊 Task Statistics
+
+The `task_stats` tool provides comprehensive insights:
 
 ```json
 {
-  "total_memories": 247,
-  "memory_limit": 10000,
-  "usage_percentage": 2.5,
-  "categories": {
-    "code-solution": 89,
-    "bug-fix": 67,
-    "learning": 45,
-    "architecture": 23,
-    "debugging": 18,
-    "other": 5
+  "total_tasks": 247,
+  "by_status": {
+    "pending": 120,
+    "in_progress": 8,
+    "completed": 110,
+    "stopped": 9
   },
-  "recent_week_count": 12,
-  "database_size_mb": 15.7,
-  "health_status": "Healthy"
+  "pending_count": 120,
+  "in_progress_count": 8,
+  "completed_count": 110,
+  "stopped_count": 9,
+  "with_subtasks": 15,
+  "next_task_id": 45
 }
 ```
 
 ### Statistics Fields Explained
 
-- **total_memories**: Current number of memories stored in the database
-- **memory_limit**: Maximum allowed memories (default: 10,000)
-- **usage_percentage**: Database capacity usage (total_memories / memory_limit * 100)
-- **categories**: Breakdown of memory count by category type
-- **recent_week_count**: Number of memories created in the last 7 days
-- **database_size_mb**: Physical size of the SQLite database file on disk
-- **health_status**: Overall database health indicator based on usage and performance metrics
+- **total_tasks**: Total number of tasks in database
+- **by_status**: Task count breakdown by status
+- **pending_count**: Tasks not yet started
+- **in_progress_count**: Tasks currently being worked on
+- **completed_count**: Finished tasks
+- **stopped_count**: Tasks that were stopped (can be resumed)
+- **with_subtasks**: Number of parent tasks with subtasks
+- **next_task_id**: ID of the next task to work on (smart selection)
 
 ## 🛡️ Security Features
 
@@ -395,9 +488,9 @@ The `get_memory_stats` tool provides comprehensive insights:
 - Blocks suspicious character patterns
 
 ### Resource Limits
-- Limits total memory count and individual memory size
-- Prevents database bloat and memory exhaustion
-- Implements cleanup mechanisms for old data
+- Limits bulk operations and individual task size
+- Prevents database bloat
+- Implements safe transaction handling
 
 ### SQL Safety
 - Uses parameterized queries exclusively
@@ -426,16 +519,11 @@ python --version  # Should be 3.10+
 3. Restart Claude Desktop after config changes
 4. Test server manually before configuring Claude
 
-#### Memory Search Not Working
+#### Task Search Not Working
 - Verify sentence-transformers model downloaded successfully
-- Check database file permissions in memory/ directory
+- Check database file permissions
 - Try broader search terms
-- Review memory content for relevance
-
-#### Performance Issues
-- Run `get_memory_stats` to check database health
-- Use `clear_old_memories` to clean up old entries
-- Consider increasing hardware resources for embedding generation
+- Review task content for relevance
 
 ### Debug Mode
 
@@ -447,92 +535,58 @@ uv run main.py --working-dir ./debug-test
 
 ## 🚀 Advanced Usage
 
-### Batch Memory Storage
+### Task Organization Strategies
 
-Store multiple related memories by calling the tool multiple times through Claude Desktop interface.
-
-### Memory Organization Strategies
-
-#### By Project
-Use tags to organize by project:
-- `["project-alpha", "frontend", "react"]`
-- `["project-beta", "backend", "node"]`
-- `["project-gamma", "devops", "docker"]`
+#### By Project Phase
+Use tags to organize by development phase:
+- `["phase-1", "mvp", "core-features"]`
+- `["phase-2", "optimization", "performance"]`
+- `["phase-3", "polish", "ux-improvements"]`
 
 #### By Technology Stack
-- `["javascript", "react", "hooks"]`
-- `["python", "django", "orm"]`
-- `["aws", "lambda", "serverless"]`
+- `["frontend", "react", "typescript"]`
+- `["backend", "python", "fastapi"]`
+- `["devops", "docker", "kubernetes"]`
 
-#### By Problem Domain
+#### By Feature Domain
 - `["authentication", "security", "jwt"]`
-- `["performance", "optimization", "caching"]`
-- `["testing", "unit-tests", "mocking"]`
+- `["payments", "stripe", "billing"]`
+- `["analytics", "reporting", "dashboard"]`
 
 ### Integration with Development Workflow
 
-#### Code Review Learnings
+#### Agile Sprint Planning
 ```
-"Code review insight: Extract validation logic into separate functions for better testability and reusability"
-```
-
-#### Sprint Retrospectives
-```
-"Sprint retrospective: Using feature flags reduced deployment risk and enabled faster rollbacks"
+Create sprint backlog tasks with priorities
+Track progress with task_start/task_finish
+Use task_stats for sprint reports
 ```
 
-#### Technical Debt Tracking
+#### Bug Tracking
 ```
-"Technical debt: UserService class has grown too large, needs refactoring into smaller domain-specific services"
+Create bug tasks with "critical" priority
+Add tags: ["bug", "production", "hotfix"]
+Use comments for debugging notes
+```
+
+#### Feature Development
+```
+Create parent task for feature
+Add subtasks for implementation steps
+Track each subtask through lifecycle
 ```
 
 ## 📈 Performance Benchmarks
 
 Based on testing with various dataset sizes:
 
-| Memory Count | Search Time | Storage Size | RAM Usage |
-|--------------|-------------|--------------|-----------|
+| Task Count | Search Time | Storage Size | RAM Usage |
+|------------|-------------|--------------|-----------|
 | 1,000 | <50ms | ~5MB | ~100MB |
 | 5,000 | <100ms | ~20MB | ~200MB |
 | 10,000 | <200ms | ~40MB | ~300MB |
 
 *Tested on MacBook Air M1 with sentence-transformers/all-MiniLM-L6-v2*
-
-## 🔧 Advanced Implementation Details
-
-### Database Indexes
-
-The memory store uses 4 optimized indexes for performance:
-
-1. **idx_category**: Speeds up category-based filtering and statistics
-2. **idx_created_at**: Optimizes temporal queries and recent memory retrieval
-3. **idx_content_hash**: Enables fast deduplication checks via SHA-256 hash lookups
-4. **idx_access_count**: Improves cleanup algorithm efficiency by tracking usage patterns
-
-### Deduplication System
-
-Content deduplication uses SHA-256 hashing to prevent storing identical memories:
-- Hash calculated on normalized content (trimmed, lowercased)
-- Check performed before insertion
-- Duplicate attempts return existing memory ID
-- Reduces storage overhead and maintains data quality
-
-### Access Tracking
-
-Each memory tracks usage statistics for intelligent management:
-- **access_count**: Number of times memory retrieved via search or direct access
-- **last_accessed_at**: Timestamp of most recent access
-- **created_at**: Original creation timestamp
-- Used by cleanup algorithm to identify valuable vs. stale memories
-
-### Cleanup Algorithm
-
-Smart cleanup prioritizes memory retention based on multiple factors:
-1. **Recency**: Newer memories are prioritized over older ones
-2. **Access patterns**: Frequently accessed memories are protected
-3. **Age threshold**: Configurable days_old parameter for hard cutoff
-4. **Count limit**: Maintains max_memories cap by removing least valuable entries
-5. **Scoring system**: Combines access_count and recency for retention decisions
 
 ## 🤝 Contributing
 
@@ -550,10 +604,10 @@ This project is released under the MIT License.
 ## 🙏 Acknowledgments
 
 - **sqlite-vec**: Alex Garcia's excellent SQLite vector extension
-- **sentence-transformers**: Nils Reimers' semantic embedding library  
+- **sentence-transformers**: Nils Reimers' semantic embedding library
 - **FastMCP**: Anthropic's high-level MCP framework
 - **Claude Desktop**: For providing the MCP integration platform
 
 ---
 
-**Built for developers who want persistent AI memory without the complexity of dedicated vector databases.**
+**Built for developers who want intelligent task management with semantic search capabilities.**

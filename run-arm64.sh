@@ -1,5 +1,5 @@
 #!/bin/bash
-# Launch script for Vector Memory MCP Server on Apple Silicon
+# Launch script for Vector Task MCP Server on Apple Silicon
 
 # Ensure we're running on arm64 architecture
 if [[ $(arch) != "arm64" ]]; then
@@ -19,5 +19,5 @@ if [[ ! -d "$SCRIPT_DIR/.venv" ]]; then
 fi
 
 # Run the server
-echo "Starting Vector Memory MCP Server (arm64 mode)..."
+echo "Starting Vector Task MCP Server (arm64 mode)..."
 exec "$SCRIPT_DIR/.venv/bin/python" "$SCRIPT_DIR/main.py" "$@"

@@ -2,7 +2,7 @@
 Data Models and Type Definitions
 ================================
 
-Defines the core data structures used throughout the vector memory system.
+Defines the core data structures used throughout the vector task system.
 """
 
 from dataclasses import dataclass
@@ -12,191 +12,151 @@ from typing import List, Optional, Dict, Any
 import json
 
 
-class MemoryCategory(Enum):
-    """Memory categories for better organization"""
-    CODE_SOLUTION = "code-solution"
-    BUG_FIX = "bug-fix"
-    ARCHITECTURE = "architecture"
-    LEARNING = "learning"
-    TOOL_USAGE = "tool-usage"
-    DEBUGGING = "debugging"
-    PERFORMANCE = "performance"
-    SECURITY = "security"
-    OTHER = "other"
-    
+class TaskStatus(Enum):
+    """Task status values for task management"""
+    PENDING = "pending"
+    IN_PROGRESS = "in_progress"
+    COMPLETED = "completed"
+    STOPPED = "stopped"
+
     @classmethod
     def list_values(cls) -> List[str]:
-        """Get list of all category values"""
-        return [category.value for category in cls]
-    
+        """Get list of all status values"""
+        return [status.value for status in cls]
+
     @classmethod
     def is_valid(cls, value: str) -> bool:
-        """Check if a value is a valid category"""
+        """Check if a value is a valid status"""
+        return value in cls.list_values()
+
+
+class Priority(Enum):
+    """Task priority levels for task management"""
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    CRITICAL = "critical"
+
+    @classmethod
+    def list_values(cls) -> List[str]:
+        """Get list of all priority values"""
+        return [priority.value for priority in cls]
+
+    @classmethod
+    def is_valid(cls, value: str) -> bool:
+        """Check if a value is a valid priority"""
         return value in cls.list_values()
 
 
 @dataclass
-class MemoryEntry:
-    """Represents a stored memory entry"""
+class Task:
+    """Represents a task entry"""
     id: Optional[int] = None
+    parent_id: Optional[int] = None
+    status: str = TaskStatus.PENDING.value
+    priority: str = Priority.MEDIUM.value
+    title: str = ""
     content: str = ""
-    category: str = MemoryCategory.OTHER.value
-    tags: List[str] = None
+    comment: Optional[str] = None
     created_at: Optional[datetime] = None
-    updated_at: Optional[datetime] = None
-    access_count: int = 0
+    start_at: Optional[datetime] = None
+    finish_at: Optional[datetime] = None
     content_hash: Optional[str] = None
-    
+    tags: List[str] = None
+
     def __post_init__(self):
         """Initialize default values"""
         if self.tags is None:
             self.tags = []
         if self.created_at is None:
             self.created_at = datetime.utcnow()
-        if self.updated_at is None:
-            self.updated_at = datetime.utcnow()
-    
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization"""
         return {
             "id": self.id,
+            "parent_id": self.parent_id,
+            "status": self.status,
+            "priority": self.priority,
+            "title": self.title,
             "content": self.content,
-            "category": self.category,
-            "tags": self.tags,
+            "comment": self.comment,
             "created_at": self.created_at.isoformat() if self.created_at else None,
-            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
-            "access_count": self.access_count,
-            "content_hash": self.content_hash
+            "start_at": self.start_at.isoformat() if self.start_at else None,
+            "finish_at": self.finish_at.isoformat() if self.finish_at else None,
+            "content_hash": self.content_hash,
+            "tags": self.tags
         }
-    
+
     @classmethod
-    def from_db_row(cls, row: tuple) -> 'MemoryEntry':
-        """Create MemoryEntry from database row"""
+    def from_db_row(cls, row: tuple) -> 'Task':
+        """Create Task from database row"""
         return cls(
             id=row[0],
-            content=row[1],
-            category=row[2],
-            tags=json.loads(row[3]) if row[3] else [],
-            created_at=datetime.fromisoformat(row[4]) if row[4] else None,
-            updated_at=datetime.fromisoformat(row[5]) if row[5] else None,
-            access_count=row[6] if len(row) > 6 else 0,
-            content_hash=row[7] if len(row) > 7 else None
+            parent_id=row[1] if len(row) > 1 else None,
+            status=row[2] if len(row) > 2 else TaskStatus.PENDING.value,
+            priority=row[3] if len(row) > 3 else Priority.MEDIUM.value,
+            title=row[4] if len(row) > 4 else "",
+            content=row[5] if len(row) > 5 else "",
+            comment=row[6] if len(row) > 6 else None,
+            tags=json.loads(row[7]) if len(row) > 7 and row[7] else [],
+            created_at=datetime.fromisoformat(row[8]) if len(row) > 8 and row[8] else None,
+            start_at=datetime.fromisoformat(row[9]) if len(row) > 9 and row[9] else None,
+            finish_at=datetime.fromisoformat(row[10]) if len(row) > 10 and row[10] else None,
+            content_hash=row[11] if len(row) > 11 else None
         )
 
 
-@dataclass  
-class SearchResult:
-    """Represents a search result with similarity scoring"""
-    memory: MemoryEntry
-    similarity: float
-    distance: float
-    
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary for JSON serialization"""
-        result = self.memory.to_dict()
-        result["similarity"] = round(self.similarity, 3)
-        result["distance"] = round(self.distance, 3)
-        return result
-
-
 @dataclass
-class MemoryStats:
-    """Database statistics and health information"""
-    total_memories: int = 0
-    memory_limit: int = 10000
-    categories: Dict[str, int] = None
-    recent_week_count: int = 0
-    database_size_mb: float = 0.0
-    embedding_model: str = ""
-    embedding_dimensions: int = 384
-    top_accessed: List[Dict[str, Any]] = None
-    health_status: str = "Unknown"
-    
+class TaskStats:
+    """Task statistics and breakdown by status"""
+    total_tasks: int = 0
+    by_status: Dict[str, int] = None
+    pending_count: int = 0
+    in_progress_count: int = 0
+    completed_count: int = 0
+    stopped_count: int = 0
+    with_subtasks: int = 0
+
     def __post_init__(self):
         """Initialize default values"""
-        if self.categories is None:
-            self.categories = {}
-        if self.top_accessed is None:
-            self.top_accessed = []
-    
-    @property
-    def usage_percentage(self) -> float:
-        """Calculate usage percentage"""
-        if self.memory_limit == 0:
-            return 0.0
-        return round((self.total_memories / self.memory_limit) * 100, 1)
-    
+        if self.by_status is None:
+            self.by_status = {}
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization"""
         return {
-            "total_memories": self.total_memories,
-            "memory_limit": self.memory_limit,
-            "usage_percentage": self.usage_percentage,
-            "categories": self.categories,
-            "recent_week_count": self.recent_week_count,
-            "database_size_mb": self.database_size_mb,
-            "embedding_model": self.embedding_model,
-            "embedding_dimensions": self.embedding_dimensions,
-            "top_accessed": self.top_accessed,
-            "health_status": self.health_status
+            "total_tasks": self.total_tasks,
+            "by_status": self.by_status,
+            "pending_count": self.pending_count,
+            "in_progress_count": self.in_progress_count,
+            "completed_count": self.completed_count,
+            "stopped_count": self.stopped_count,
+            "with_subtasks": self.with_subtasks
         }
 
 
 # Configuration constants
 class Config:
     """Configuration constants"""
-    
+
     # Server configuration
-    SERVER_NAME = "Vector Memory MCP Server"
+    SERVER_NAME = "Vector Task MCP Server"
     SERVER_VERSION = "1.0.0"
-    
-    # Security limits
-    MAX_MEMORY_LENGTH = 10000
-    MAX_MEMORIES_PER_SEARCH = 50
-    MAX_TOTAL_MEMORIES = 10000
-    MAX_TAG_LENGTH = 100
-    MAX_TAGS_PER_MEMORY = 10
-    
+
+    # Content limits
+    MAX_MEMORY_LENGTH = 10000  # Maximum length for content and comments (10K chars)
+    MAX_TAG_LENGTH = 50        # Maximum length for single tag
+    MAX_TAGS_PER_MEMORY = 10   # Maximum number of tags per task
+
+    # Search limits
+    MAX_MEMORIES_PER_SEARCH = 50  # Maximum results per search/list operation
+
+    # Bulk operation limits
+    MAX_BULK_CREATE = 50      # Maximum tasks per bulk create operation
+    MAX_BULK_DELETE = 100     # Maximum task IDs per bulk delete operation
+
     # Database configuration
-    DB_NAME = "vector_memory.db"
+    DB_NAME = "vector_tasks.db"
     EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
     EMBEDDING_DIM = 384
-    
-    # Memory categories
-    MEMORY_CATEGORIES = MemoryCategory.list_values()
-
-
-@dataclass
-class SimilarityScoring:
-    """Similarity scoring interpretation ranges.
-
-    Scores are calculated as: similarity = 1 - cosine_distance
-    where cosine_distance is in range [0, 2] and similarity in [0, 1].
-    """
-
-    # Thresholds
-    EXTREMELY_RELEVANT = 0.9  # Almost exact matches
-    HIGHLY_RELEVANT = 0.8     # Strong semantic similarity
-    MODERATELY_RELEVANT = 0.7 # Good contextual match
-    SOMEWHAT_RELEVANT = 0.6   # Might be useful
-
-    @staticmethod
-    def interpret(similarity: float) -> str:
-        """Interpret similarity score with human-readable description.
-
-        Args:
-            similarity: Cosine similarity score (0-1, higher = better)
-
-        Returns:
-            Human-readable interpretation string
-        """
-        if similarity >= 0.9:
-            return "Extremely relevant - almost exact match"
-        elif similarity >= 0.8:
-            return "Highly relevant - strong semantic similarity"
-        elif similarity >= 0.7:
-            return "Moderately relevant - good contextual match"
-        elif similarity >= 0.6:
-            return "Somewhat relevant - might be useful"
-        else:
-            return "Low relevance - probably not helpful"
