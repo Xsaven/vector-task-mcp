@@ -9,6 +9,7 @@ for the vector memory MCP server.
 import re
 import os
 import sqlite3
+from datetime import datetime
 from pathlib import Path
 from typing import List
 
@@ -307,7 +308,136 @@ def validate_priority(priority: str) -> str:
         return "medium"
 
 
-def validate_task_params(title: str, content: str, status: str = None, parent_id: int = None, comment: str = None, priority: str = None, tags: List[str] = None) -> tuple:
+def validate_date_filter(date_str: str, param_name: str = "date") -> str | None:
+    """
+    Validate ISO 8601 date/datetime format for filter parameters.
+
+    Args:
+        date_str: Date string to validate (ISO 8601 format)
+        param_name: Parameter name for error messages
+
+    Returns:
+        str | None: Validated ISO 8601 string if valid, None if input is None
+
+    Raises:
+        ValueError: If date format is invalid
+    """
+    if date_str is None:
+        return None
+
+    if not isinstance(date_str, str):
+        raise ValueError(f"Invalid ISO 8601 date format for {param_name}: must be a string")
+
+    # Try to parse as ISO 8601 datetime
+    try:
+        # datetime.fromisoformat() supports:
+        # - "YYYY-MM-DD"
+        # - "YYYY-MM-DDTHH:MM:SS"
+        # - "YYYY-MM-DDTHH:MM:SS.ffffff"
+        # - With optional timezone: "YYYY-MM-DDTHH:MM:SS+00:00"
+        datetime.fromisoformat(date_str)
+        return date_str
+    except (ValueError, TypeError) as e:
+        raise ValueError(
+            f"Invalid ISO 8601 date format for {param_name}: {date_str}. "
+            f"Expected formats: 'YYYY-MM-DD' or 'YYYY-MM-DDTHH:MM:SS' (with optional timezone)"
+        )
+
+
+def validate_task_stats_params(
+    created_after: str = None,
+    created_before: str = None,
+    start_after: str = None,
+    start_before: str = None,
+    finish_after: str = None,
+    finish_before: str = None,
+    status: str = None,
+    priority: str = None,
+    tags: List[str] = None,
+    parent_id: int = None
+) -> tuple:
+    """
+    Validate task_stats parameters for filtering statistics.
+
+    Args:
+        created_after: Filter tasks created after this ISO 8601 date/datetime
+        created_before: Filter tasks created before this ISO 8601 date/datetime
+        start_after: Filter tasks started after this ISO 8601 date/datetime
+        start_before: Filter tasks started before this ISO 8601 date/datetime
+        finish_after: Filter tasks finished after this ISO 8601 date/datetime
+        finish_before: Filter tasks finished before this ISO 8601 date/datetime
+        status: Optional status filter (pending, in_progress, completed, stopped)
+        priority: Optional priority filter (low, medium, high, critical)
+        tags: Optional list of tags to filter by
+        parent_id: Optional parent task ID filter
+
+    Returns:
+        tuple: (validated_created_after, validated_created_before, validated_start_after,
+                validated_start_before, validated_finish_after, validated_finish_before,
+                validated_status, validated_priority, validated_tags, validated_parent_id)
+
+    Raises:
+        ValueError: If any date parameter has invalid ISO 8601 format
+        SecurityError: If status, priority, tags, or parent_id validation fails
+    """
+    # Validate date filters using validate_date_filter
+    validated_created_after = validate_date_filter(created_after, "created_after")
+    validated_created_before = validate_date_filter(created_before, "created_before")
+    validated_start_after = validate_date_filter(start_after, "start_after")
+    validated_start_before = validate_date_filter(start_before, "start_before")
+    validated_finish_after = validate_date_filter(finish_after, "finish_after")
+    validated_finish_before = validate_date_filter(finish_before, "finish_before")
+
+    # Validate status (optional)
+    validated_status = None
+    if status is not None:
+        if not isinstance(status, str):
+            raise SecurityError("status must be one of: pending, in_progress, completed, stopped")
+        if not TaskStatus.is_valid(status):
+            raise SecurityError("status must be one of: pending, in_progress, completed, stopped")
+        validated_status = status
+
+    # Validate priority (optional)
+    validated_priority = None
+    if priority is not None:
+        if not isinstance(priority, str):
+            raise SecurityError("priority must be one of: low, medium, high, critical")
+        if not Priority.is_valid(priority):
+            raise SecurityError("priority must be one of: low, medium, high, critical")
+        validated_priority = priority
+
+    # Validate tags (optional)
+    validated_tags = None
+    if tags is not None:
+        if not isinstance(tags, list):
+            raise SecurityError("tags must be a list")
+        validated_tags = validate_tags(tags)
+        if not validated_tags:
+            validated_tags = None  # Empty list after validation = no filter
+
+    # Validate parent_id (optional)
+    # Note: parent_id=0 is special value meaning "root tasks only" (WHERE parent_id IS NULL)
+    validated_parent_id = None
+    if parent_id is not None:
+        if not isinstance(parent_id, int) or parent_id < 0:
+            raise SecurityError("parent_id must be a non-negative integer (0 for root tasks)")
+        validated_parent_id = parent_id
+
+    return (
+        validated_created_after,
+        validated_created_before,
+        validated_start_after,
+        validated_start_before,
+        validated_finish_after,
+        validated_finish_before,
+        validated_status,
+        validated_priority,
+        validated_tags,
+        validated_parent_id
+    )
+
+
+def validate_task_params(title: str, content: str, status: str = None, parent_id: int = None, comment: str = None, priority: str = None, tags: List[str] = None, order: int = None) -> tuple:
     """
     Validate task creation/update parameters.
 
@@ -319,9 +449,10 @@ def validate_task_params(title: str, content: str, status: str = None, parent_id
         comment: Optional task comment
         priority: Optional task priority
         tags: Optional list of tags
+        order: Optional task order (positive integer)
 
     Returns:
-        tuple: (sanitized_title, sanitized_content, validated_status, validated_parent_id, validated_comment, validated_priority, validated_tags)
+        tuple: (sanitized_title, sanitized_content, validated_status, validated_parent_id, validated_comment, validated_priority, validated_tags, validated_order)
 
     Raises:
         SecurityError: If validation fails
@@ -369,7 +500,16 @@ def validate_task_params(title: str, content: str, status: str = None, parent_id
     if tags is not None:
         validated_tags = validate_tags(tags)
 
-    return sanitized_title, sanitized_content, validated_status, validated_parent_id, validated_comment, validated_priority, validated_tags
+    # Validate order
+    validated_order = None
+    if order is not None:
+        if not isinstance(order, int):
+            raise SecurityError("order must be an integer")
+        if order < 1:
+            raise SecurityError("order must be positive (>= 1)")
+        validated_order = order
+
+    return sanitized_title, sanitized_content, validated_status, validated_parent_id, validated_comment, validated_priority, validated_tags, validated_order
 
 
 def validate_task_update_params(task_id: int, **kwargs) -> tuple:
@@ -378,7 +518,7 @@ def validate_task_update_params(task_id: int, **kwargs) -> tuple:
 
     Args:
         task_id: Task ID to update
-        **kwargs: Fields to update (title, content, status, parent_id, comment, priority, start_at, finish_at)
+        **kwargs: Fields to update (title, content, status, parent_id, comment, priority, tags, order, start_at, finish_at)
 
     Returns:
         tuple: (task_id, validated_kwargs_dict)
@@ -446,6 +586,26 @@ def validate_task_update_params(task_id: int, **kwargs) -> tuple:
         else:
             validated_kwargs['tags'] = []  # Explicit None = clear tags
 
+    # Validate order if provided
+    if 'order' in kwargs:
+        order_value = kwargs['order']
+        if order_value is not None:
+            if not isinstance(order_value, int):
+                raise SecurityError("order must be an integer")
+            if order_value < 1:
+                raise SecurityError("order must be positive (>= 1)")
+        validated_kwargs['order'] = order_value
+
+    # Validate estimate if provided
+    if 'estimate' in kwargs:
+        estimate_value = kwargs['estimate']
+        if estimate_value is not None:
+            if not isinstance(estimate_value, (int, float)):
+                raise SecurityError("estimate must be a number")
+            if estimate_value < 0:
+                raise SecurityError("estimate must be non-negative")
+        validated_kwargs['estimate'] = estimate_value
+
     # Validate start_at if provided (pass through - already validated as ISO8601 string)
     if 'start_at' in kwargs:
         validated_kwargs['start_at'] = kwargs['start_at']
@@ -485,7 +645,7 @@ def validate_parent_id(task_id: int, parent_id: int | None, conn: sqlite3.Connec
         raise SecurityError(f"Parent task with ID {parent_id} does not exist")
 
 
-def validate_task_list_params(limit: int, offset: int, status: str = None, parent_id: int = None, tags: List[str] = None) -> tuple:
+def validate_task_list_params(limit: int, offset: int, status: str = None, parent_id: int = None, tags: List[str] = None, ids: List[int] = None) -> tuple:
     """
     Validate task_list parameters.
 
@@ -495,9 +655,10 @@ def validate_task_list_params(limit: int, offset: int, status: str = None, paren
         status: Optional status filter
         parent_id: Optional parent task ID filter
         tags: Optional list of tags to filter by
+        ids: Optional list of task IDs to filter by
 
     Returns:
-        tuple: (validated_limit, validated_offset, validated_status, validated_parent_id, validated_tags)
+        tuple: (validated_limit, validated_offset, validated_status, validated_parent_id, validated_tags, validated_ids)
 
     Raises:
         SecurityError: If validation fails
@@ -537,7 +698,53 @@ def validate_task_list_params(limit: int, offset: int, status: str = None, paren
         if not validated_tags:
             validated_tags = None  # Empty list after validation = no filter
 
-    return limit, offset, validated_status, validated_parent_id, validated_tags
+    # Validate ids (optional)
+    validated_ids = None
+    if ids is not None:
+        if not isinstance(ids, list):
+            raise SecurityError("ids must be a list")
+
+        if not ids:
+            # Empty list returns None (no filter)
+            validated_ids = None
+        else:
+            # Validate batch size (max 50)
+            if len(ids) > 50:
+                raise SecurityError(f"IDs list exceeds maximum allowed (50). Current: {len(ids)}")
+
+            # Validate each ID
+            validated_id_list = []
+            invalid_ids = []
+
+            for task_id in ids:
+                if not isinstance(task_id, int):
+                    invalid_ids.append(f"'{task_id}' (not an integer)")
+                    continue
+
+                if task_id < 1:
+                    invalid_ids.append(f"{task_id} (must be positive)")
+                    continue
+
+                validated_id_list.append(task_id)
+
+            # Raise if any invalid IDs found
+            if invalid_ids:
+                raise SecurityError(
+                    f"Invalid task IDs found: {', '.join(invalid_ids[:5])}"
+                    + (f" and {len(invalid_ids) - 5} more..." if len(invalid_ids) > 5 else "")
+                )
+
+            # Deduplicate IDs (preserve order)
+            deduplicated_ids = []
+            seen = set()
+            for task_id in validated_id_list:
+                if task_id not in seen:
+                    deduplicated_ids.append(task_id)
+                    seen.add(task_id)
+
+            validated_ids = deduplicated_ids if deduplicated_ids else None
+
+    return limit, offset, validated_status, validated_parent_id, validated_tags, validated_ids
 
 
 def validate_bulk_tasks_params(tasks: List[dict], max_batch_size: int = 50) -> tuple:

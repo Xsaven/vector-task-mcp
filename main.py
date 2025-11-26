@@ -23,9 +23,9 @@ Task database stored in: {working_dir}/memory/tasks.db
 """
 
 import sys
-from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, Any
+from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 # Add src to path for imports
 sys.path.insert(0, str(Path(__file__).parent / "src"))
@@ -34,7 +34,7 @@ from mcp.server.fastmcp import FastMCP
 
 # Import our modules
 from src.models import Config
-from src.security import validate_working_dir, SecurityError, validate_task_list_params
+from src.security import validate_working_dir, SecurityError, validate_task_list_params, validate_tags, validate_task_stats_params
 from src.task_store import TaskStore
 
 
@@ -48,16 +48,39 @@ def get_working_dir() -> Path:
     return validate_working_dir(".")
 
 
+def get_timezone() -> str | None:
+    """Get timezone from command line arguments.
+
+    Returns:
+        Timezone string (e.g., 'Europe/Kyiv') or None for UTC default.
+
+    Raises:
+        SystemExit: If invalid timezone name provided.
+    """
+    if "--timezone" in sys.argv:
+        idx = sys.argv.index("--timezone")
+        if idx + 1 < len(sys.argv):
+            tz_str = sys.argv[idx + 1]
+            try:
+                ZoneInfo(tz_str)  # Validate timezone exists
+                return tz_str
+            except ZoneInfoNotFoundError:
+                print(f"Error: Invalid timezone '{tz_str}'. Use IANA timezone names (e.g., 'Europe/Kyiv', 'America/New_York').", file=sys.stderr)
+                sys.exit(1)
+    return None
+
+
 def create_server() -> FastMCP:
     """Create and configure the MCP server"""
 
     # Initialize task store
     try:
         working_dir = get_working_dir()
+        timezone = get_timezone()
         memory_dir = working_dir / "memory"
         memory_dir.mkdir(parents=True, exist_ok=True)
         task_db_path = memory_dir / "tasks.db"
-        task_store = TaskStore(task_db_path)
+        task_store = TaskStore(task_db_path, timezone=timezone)
         print(f"Task database initialized: {task_db_path}", file=sys.stderr)
     except Exception as e:
         print(f"Failed to initialize task store: {e}", file=sys.stderr)
@@ -77,6 +100,8 @@ def create_server() -> FastMCP:
         parent_id: int = None,
         comment: str = None,
         priority: str = None,
+        estimate: float | None = None,
+        order: int | None = None,
         tags: list[str] = None
     ) -> dict[str, Any]:
         """
@@ -88,10 +113,21 @@ def create_server() -> FastMCP:
             parent_id: Optional parent task ID for subtasks
             comment: Optional comment/note for the task
             priority: Optional task priority (low, medium, high, critical, default: medium)
+            estimate: Optional time estimate in hours
+            order: Optional task order/position (auto-assigned if not provided)
             tags: Optional list of tags for organization (max 10)
         """
         try:
-            result = task_store.create_task(title, content, parent_id, comment, priority, tags)
+            result = task_store.create_task(
+                title=title,
+                content=content,
+                parent_id=parent_id,
+                comment=comment,
+                priority=priority,
+                tags=tags,
+                estimate=estimate,
+                order=order
+            )
             return result
 
         except SecurityError as e:
@@ -118,12 +154,15 @@ def create_server() -> FastMCP:
                 - content (required): Task description (max 10K chars)
                 - parent_id (optional): Parent task ID for subtasks
                 - comment (optional): Comment/note for the task
+                - priority (optional): Task priority (low, medium, high, critical)
+                - estimate (optional): Time estimate in hours
+                - order (optional): Task order/position (auto-assigned if not provided)
                 - tags (optional): List of tags for organization (max 10)
 
         Example:
             tasks = [
-                {"title": "Task 1", "content": "Description", "parent_id": None, "comment": "Note", "tags": ["backend", "api"]},
-                {"title": "Task 2", "content": "Description", "parent_id": 1, "comment": None, "tags": ["frontend"]}
+                {"title": "Task 1", "content": "Description", "parent_id": None, "comment": "Note", "priority": "high", "estimate": 3.5, "order": 1, "tags": ["backend", "api"]},
+                {"title": "Task 2", "content": "Description", "parent_id": 1, "comment": None, "estimate": 2.0, "order": 2, "tags": ["frontend"]}
             ]
         """
         try:
@@ -154,7 +193,12 @@ def create_server() -> FastMCP:
         start_at: str | None = None,
         finish_at: str | None = None,
         priority: str | None = None,
-        tags: list[str] | None = None
+        estimate: float | None = None,
+        order: int | None = None,
+        tags: list[str] | None = None,
+        append_comment: bool = False,
+        add_tag: str | None = None,
+        remove_tag: str | None = None
     ) -> dict[str, Any]:
         """
         Update task fields by ID.
@@ -169,7 +213,12 @@ def create_server() -> FastMCP:
             start_at: Optional start timestamp (ISO 8601 format)
             finish_at: Optional finish timestamp (ISO 8601 format)
             priority: Optional new priority (low, medium, high, critical)
+            estimate: Optional time estimate in hours
+            order: Optional new order/position (triggers sibling reordering)
             tags: Optional list of tags to replace existing tags
+            append_comment: If True, append comment to existing with \\n\\n separator
+            add_tag: Optional single tag to add (validates duplicates and 10-tag limit)
+            remove_tag: Optional single tag to remove (case-insensitive, silent if not found)
         """
         try:
             if not isinstance(task_id, int) or task_id < 1:
@@ -179,8 +228,47 @@ def create_server() -> FastMCP:
                     "message": "task_id must be a positive integer"
                 }
 
+            # Handle comment append logic
+            if comment is not None and append_comment:
+                existing = task_store.get_task_by_id(task_id)
+                if existing and existing.comment:
+                    comment = existing.comment + "\n\n" + comment
+
             # Build kwargs from provided parameters
             kwargs = {}
+
+            # Handle add_tag - append single tag with validation
+            if add_tag is not None:
+                try:
+                    sanitized_tags = validate_tags([add_tag])
+                    sanitized_tag = sanitized_tags[0]
+                except SecurityError as e:
+                    return {"success": False, "error": f"Invalid tag: {e}"}
+
+                existing = task_store.get_task_by_id(task_id)
+                if not existing:
+                    return {"success": False, "error": f"Task {task_id} not found"}
+
+                current_tags = existing.tags or []
+
+                if sanitized_tag in current_tags:
+                    return {"success": False, "error": f"Tag '{sanitized_tag}' already exists on task"}
+
+                if len(current_tags) >= 10:
+                    return {"success": False, "error": "Maximum 10 tags per task"}
+
+                kwargs["tags"] = current_tags + [sanitized_tag]
+
+            # Handle remove_tag - remove single tag with case-insensitive match
+            if remove_tag is not None:
+                tag_normalized = remove_tag.lower().strip()
+                if tag_normalized:
+                    existing = task_store.get_task_by_id(task_id)
+                    if existing and existing.tags:
+                        updated_tags = [t for t in existing.tags if t != tag_normalized]
+                        if len(updated_tags) != len(existing.tags):
+                            kwargs["tags"] = updated_tags
+
             if title is not None:
                 kwargs['title'] = title
             if content is not None:
@@ -197,6 +285,10 @@ def create_server() -> FastMCP:
                 kwargs['finish_at'] = finish_at
             if priority is not None:
                 kwargs['priority'] = priority
+            if estimate is not None:
+                kwargs['estimate'] = estimate
+            if order is not None:
+                kwargs['order'] = order
             if tags is not None:
                 kwargs['tags'] = tags
 
@@ -280,197 +372,14 @@ def create_server() -> FastMCP:
             }
 
     @mcp.tool()
-    def task_last() -> dict[str, Any]:
-        """Get last created task."""
-        try:
-            task = task_store.get_last_task()
-
-            if task is None:
-                return {
-                    "success": False,
-                    "error": "Not found",
-                    "message": "No tasks found in database"
-                }
-
-            return {
-                "success": True,
-                "task": task.to_dict(),
-                "message": "Last task retrieved successfully"
-            }
-
-        except Exception as e:
-            return {
-                "success": False,
-                "error": "Retrieval failed",
-                "message": str(e)
-            }
-
-    @mcp.tool()
-    def task_start(task_id: int) -> dict[str, Any]:
-        """
-        Start task (set status to in_progress, record start time).
-
-        Args:
-            task_id: Task ID to start
-        """
-        try:
-            if not isinstance(task_id, int) or task_id < 1:
-                return {
-                    "success": False,
-                    "error": "Invalid parameter",
-                    "message": "task_id must be a positive integer"
-                }
-
-            # Fetch current task to validate status transition
-            current_task = task_store.get_task_by_id(task_id)
-            if current_task is None:
-                return {
-                    "success": False,
-                    "error": "Not found",
-                    "message": f"Task {task_id} not found"
-                }
-
-            # Validate status transition
-            if current_task.status == "completed":
-                raise SecurityError("Cannot start completed task. Task already finished.")
-
-            if current_task.status == "in_progress":
-                raise SecurityError("Task already in progress")
-
-            # Only pending and stopped tasks can be started
-            result = task_store.update_task(
-                task_id,
-                status="in_progress",
-                start_at=datetime.now(timezone.utc).isoformat(),
-                finish_at=None
-            )
-
-            return result
-
-        except SecurityError as e:
-            return {
-                "success": False,
-                "error": "Security validation failed",
-                "message": str(e)
-            }
-        except Exception as e:
-            return {
-                "success": False,
-                "error": "Failed to start task",
-                "message": str(e)
-            }
-
-    @mcp.tool()
-    def task_stop(task_id: int) -> dict[str, Any]:
-        """
-        Stop task (set status to stopped).
-
-        Args:
-            task_id: Task ID to stop
-        """
-        try:
-            if not isinstance(task_id, int) or task_id < 1:
-                return {
-                    "success": False,
-                    "error": "Invalid parameter",
-                    "message": "task_id must be a positive integer"
-                }
-
-            result = task_store.update_task(task_id, status="stopped")
-
-            return result
-
-        except SecurityError as e:
-            return {
-                "success": False,
-                "error": "Security validation failed",
-                "message": str(e)
-            }
-        except Exception as e:
-            return {
-                "success": False,
-                "error": "Failed to stop task",
-                "message": str(e)
-            }
-
-    @mcp.tool()
-    def task_finish(task_id: int) -> dict[str, Any]:
-        """
-        Finish task (set status to completed, record finish time).
-
-        Args:
-            task_id: Task ID to finish
-        """
-        try:
-            if not isinstance(task_id, int) or task_id < 1:
-                return {
-                    "success": False,
-                    "error": "Invalid parameter",
-                    "message": "task_id must be a positive integer"
-                }
-
-            result = task_store.update_task(
-                task_id,
-                status="completed",
-                finish_at=datetime.now(timezone.utc).isoformat()
-            )
-
-            return result
-
-        except SecurityError as e:
-            return {
-                "success": False,
-                "error": "Security validation failed",
-                "message": str(e)
-            }
-        except Exception as e:
-            return {
-                "success": False,
-                "error": "Failed to finish task",
-                "message": str(e)
-            }
-
-    @mcp.tool()
-    def task_resume(task_id: int) -> dict[str, Any]:
-        """
-        Resume stopped task (set status back to in_progress).
-
-        Args:
-            task_id: Task ID to resume
-        """
-        try:
-            if not isinstance(task_id, int) or task_id < 1:
-                return {
-                    "success": False,
-                    "error": "Invalid parameter",
-                    "message": "task_id must be a positive integer"
-                }
-
-            result = task_store.update_task(task_id, status="in_progress", finish_at=None)
-
-            return result
-
-        except SecurityError as e:
-            return {
-                "success": False,
-                "error": "Security validation failed",
-                "message": str(e)
-            }
-        except Exception as e:
-            return {
-                "success": False,
-                "error": "Failed to resume task",
-                "message": str(e)
-            }
-
-    @mcp.tool()
     def task_list(
         query: str = None,
         limit: int = 10,
         offset: int = 0,
         status: str = None,
         parent_id: int = None,
-        tags: list[str] = None
+        tags: list[str] = None,
+        ids: list[int] = None
     ) -> dict[str, Any]:
         """
         List tasks with optional filters and vector semantic search.
@@ -482,15 +391,17 @@ def create_server() -> FastMCP:
             status: Optional status filter (pending, in_progress, completed, stopped)
             parent_id: Optional parent task ID filter (for subtasks)
             tags: Optional list of tags to filter by (matches tasks containing ANY of the specified tags)
+            ids: Optional list of task IDs to filter by (AND logic with other filters, max 50)
         """
         try:
             # Validate parameters
-            limit, offset, status, parent_id, validated_tags = validate_task_list_params(
+            limit, offset, status, parent_id, validated_tags, validated_ids = validate_task_list_params(
                 limit=limit,
                 offset=offset,
                 status=status,
                 parent_id=parent_id,
-                tags=tags
+                tags=tags,
+                ids=ids
             )
 
             # Search tasks
@@ -500,7 +411,8 @@ def create_server() -> FastMCP:
                 offset=offset,
                 status=status,
                 parent_id=parent_id,
-                tags=validated_tags
+                tags=validated_tags,
+                ids=validated_ids
             )
 
             if not tasks:
@@ -607,7 +519,18 @@ def create_server() -> FastMCP:
             }
 
     @mcp.tool()
-    def task_stats() -> dict[str, Any]:
+    def task_stats(
+        created_after: str = None,
+        created_before: str = None,
+        start_after: str = None,
+        start_before: str = None,
+        finish_after: str = None,
+        finish_before: str = None,
+        status: str = None,
+        priority: str = None,
+        tags: list[str] = None,
+        parent_id: int = None
+    ) -> dict[str, Any]:
         """
         Get task statistics (total, completed, pending, in_progress, stopped, next_task_id, etc.).
 
@@ -616,266 +539,94 @@ def create_server() -> FastMCP:
         - Count by status (pending, in_progress, completed, stopped)
         - Tasks with subtasks count
         - Next task ID (from smart selection logic)
+        - Unique tags across all tasks
+
+        Args:
+            created_after: Filter tasks created after this date (ISO 8601 format: YYYY-MM-DD or YYYY-MM-DDTHH:MM:SS)
+            created_before: Filter tasks created before this date (ISO 8601 format)
+            start_after: Filter tasks started after this date (ISO 8601 format)
+            start_before: Filter tasks started before this date (ISO 8601 format)
+            finish_after: Filter tasks finished after this date (ISO 8601 format)
+            finish_before: Filter tasks finished before this date (ISO 8601 format)
+            status: Filter by task status (pending, in_progress, completed, stopped)
+            priority: Filter by priority (low, medium, high, critical)
+            tags: Filter by tags (OR logic - matches tasks with ANY specified tag)
+            parent_id: Filter for subtasks of specific parent (use 0 for root tasks only)
         """
         try:
-            # Get stats from TaskStore
-            stats = task_store.get_stats()
+            # Validate filter parameters
+            (
+                validated_created_after, validated_created_before,
+                validated_start_after, validated_start_before,
+                validated_finish_after, validated_finish_before,
+                validated_status, validated_priority,
+                validated_tags, validated_parent_id
+            ) = validate_task_stats_params(
+                created_after=created_after,
+                created_before=created_before,
+                start_after=start_after,
+                start_before=start_before,
+                finish_after=finish_after,
+                finish_before=finish_before,
+                status=status,
+                priority=priority,
+                tags=tags,
+                parent_id=parent_id
+            )
+
+            # Get stats from TaskStore with filters
+            stats = task_store.get_stats(
+                created_after=validated_created_after,
+                created_before=validated_created_before,
+                start_after=validated_start_after,
+                start_before=validated_start_before,
+                finish_after=validated_finish_after,
+                finish_before=validated_finish_before,
+                status=validated_status,
+                priority=validated_priority,
+                tags=validated_tags,
+                parent_id=validated_parent_id
+            )
 
             # Get next task ID
             next_task = task_store.get_next_task()
             next_task_id = next_task.id if next_task else None
 
+            # Get unique tags
+            unique_tags = task_store.get_all_tags()
+
             # Build response with stats
             result = stats.to_dict()
             result["success"] = True
             result["next_task_id"] = next_task_id
-            result["message"] = f"Statistics for {result['total_tasks']} tasks"
+            result["unique_tags"] = unique_tags
+
+            # Build message based on whether filters are applied
+            filters_applied = any([
+                validated_created_after, validated_created_before,
+                validated_start_after, validated_start_before,
+                validated_finish_after, validated_finish_before,
+                validated_status, validated_priority,
+                validated_tags, validated_parent_id is not None
+            ])
+
+            if filters_applied:
+                result["message"] = f"Filtered statistics for {result['total_tasks']} tasks, {len(unique_tags)} unique tags"
+            else:
+                result["message"] = f"Statistics for {result['total_tasks']} tasks, {len(unique_tags)} unique tags"
 
             return result
 
+        except ValueError as e:
+            return {
+                "success": False,
+                "error": "Validation failed",
+                "message": str(e)
+            }
         except Exception as e:
             return {
                 "success": False,
                 "error": "Failed to get statistics",
-                "message": str(e)
-            }
-
-    @mcp.tool()
-    def task_comment(task_id: int, comment: str, append: bool = True) -> dict[str, Any]:
-        """
-        Add or replace task comment.
-
-        Args:
-            task_id: Task ID to update
-            comment: Comment text to add or set
-            append: If True, append to existing comment with \\n\\n separator. If False, replace entirely.
-        """
-        try:
-            # Parameter validation
-            if not isinstance(task_id, int) or task_id < 1:
-                return {
-                    "success": False,
-                    "error": "Invalid parameter",
-                    "message": "task_id must be a positive integer"
-                }
-
-            if not isinstance(comment, str) or not comment.strip():
-                return {
-                    "success": False,
-                    "error": "Invalid parameter",
-                    "message": "comment cannot be empty"
-                }
-
-            # Fetch existing task
-            existing_task = task_store.get_task_by_id(task_id)
-
-            if existing_task is None:
-                return {
-                    "success": False,
-                    "error": "Not found",
-                    "message": f"Task with ID {task_id} not found"
-                }
-
-            # Build new comment
-            if append and existing_task.comment:
-                new_comment = existing_task.comment + "\n\n" + comment
-            else:
-                new_comment = comment
-
-            # Update task
-            result = task_store.update_task(task_id, comment=new_comment)
-            return result
-
-        except SecurityError as e:
-            return {
-                "success": False,
-                "error": "Security validation failed",
-                "message": str(e)
-            }
-        except Exception as e:
-            return {
-                "success": False,
-                "error": "Comment update failed",
-                "message": str(e)
-            }
-
-    @mcp.tool()
-    def task_add_tag(task_id: int, tag: str) -> dict[str, Any]:
-        """
-        Add a single tag to a task (appends to existing tags).
-
-        Args:
-            task_id: Task ID to update
-            tag: Tag to add (will be sanitized and lowercased)
-        """
-        try:
-            # Validate task_id
-            if not isinstance(task_id, int) or task_id < 1:
-                return {
-                    "success": False,
-                    "error": "Invalid parameter",
-                    "message": "task_id must be a positive integer"
-                }
-
-            # Validate tag
-            if not isinstance(tag, str) or not tag.strip():
-                return {
-                    "success": False,
-                    "error": "Invalid parameter",
-                    "message": "tag cannot be empty"
-                }
-
-            # Get existing task
-            task = task_store.get_task_by_id(task_id)
-
-            if task is None:
-                return {
-                    "success": False,
-                    "error": "Not found",
-                    "message": f"Task with ID {task_id} not found"
-                }
-
-            # Get current tags and add new tag
-            current_tags = task.tags if task.tags else []
-
-            # Sanitize and normalize new tag
-            from src.security import validate_tags
-            validated_tags = validate_tags([tag])
-
-            if not validated_tags:
-                return {
-                    "success": False,
-                    "error": "Validation failed",
-                    "message": "Tag validation failed (must be alphanumeric + hyphens/underscores)"
-                }
-
-            new_tag = validated_tags[0]
-
-            # Check if tag already exists
-            if new_tag in current_tags:
-                return {
-                    "success": False,
-                    "error": "Already exists",
-                    "message": f"Tag '{new_tag}' already exists on task {task_id}"
-                }
-
-            # Check max tags limit
-            if len(current_tags) >= 10:
-                return {
-                    "success": False,
-                    "error": "Limit exceeded",
-                    "message": "Task already has maximum of 10 tags"
-                }
-
-            # Add tag
-            updated_tags = current_tags + [new_tag]
-            result = task_store.update_task(task_id, tags=updated_tags)
-
-            return result
-
-        except SecurityError as e:
-            return {
-                "success": False,
-                "error": "Security validation failed",
-                "message": str(e)
-            }
-        except Exception as e:
-            return {
-                "success": False,
-                "error": "Failed to add tag",
-                "message": str(e)
-            }
-
-    @mcp.tool()
-    def task_remove_tag(task_id: int, tag: str) -> dict[str, Any]:
-        """
-        Remove a single tag from a task.
-
-        Args:
-            task_id: Task ID to update
-            tag: Tag to remove (case-insensitive match)
-        """
-        try:
-            # Validate task_id
-            if not isinstance(task_id, int) or task_id < 1:
-                return {
-                    "success": False,
-                    "error": "Invalid parameter",
-                    "message": "task_id must be a positive integer"
-                }
-
-            # Validate tag
-            if not isinstance(tag, str) or not tag.strip():
-                return {
-                    "success": False,
-                    "error": "Invalid parameter",
-                    "message": "tag cannot be empty"
-                }
-
-            # Get existing task
-            task = task_store.get_task_by_id(task_id)
-
-            if task is None:
-                return {
-                    "success": False,
-                    "error": "Not found",
-                    "message": f"Task with ID {task_id} not found"
-                }
-
-            # Get current tags
-            current_tags = task.tags if task.tags else []
-
-            # Normalize tag for comparison (lowercase)
-            tag_normalized = tag.lower().strip()
-
-            # Check if tag exists
-            if tag_normalized not in current_tags:
-                return {
-                    "success": False,
-                    "error": "Not found",
-                    "message": f"Tag '{tag_normalized}' not found on task {task_id}"
-                }
-
-            # Remove tag
-            updated_tags = [t for t in current_tags if t != tag_normalized]
-            result = task_store.update_task(task_id, tags=updated_tags)
-
-            return result
-
-        except SecurityError as e:
-            return {
-                "success": False,
-                "error": "Security validation failed",
-                "message": str(e)
-            }
-        except Exception as e:
-            return {
-                "success": False,
-                "error": "Failed to remove tag",
-                "message": str(e)
-            }
-
-    @mcp.tool()
-    def task_get_all_tags() -> dict[str, Any]:
-        """
-        Get all unique tags across all tasks.
-
-        Returns sorted list of unique tags from the task database.
-        """
-        try:
-            tags = task_store.get_all_tags()
-
-            return {
-                "success": True,
-                "tags": tags,
-                "count": len(tags),
-                "message": f"Retrieved {len(tags)} unique tags"
-            }
-
-        except Exception as e:
-            return {
-                "success": False,
-                "error": "Failed to retrieve tags",
                 "message": str(e)
             }
 

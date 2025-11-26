@@ -63,6 +63,9 @@ class Task:
     finish_at: Optional[datetime] = None
     content_hash: Optional[str] = None
     tags: List[str] = None
+    estimate: Optional[float] = None
+    order: Optional[int] = None
+    time_spent: float = 0.0
 
     def __post_init__(self):
         """Initialize default values"""
@@ -85,7 +88,10 @@ class Task:
             "start_at": self.start_at.isoformat() if self.start_at else None,
             "finish_at": self.finish_at.isoformat() if self.finish_at else None,
             "content_hash": self.content_hash,
-            "tags": self.tags
+            "tags": self.tags,
+            "estimate": self.estimate,
+            "order": self.order,
+            "time_spent": self.time_spent
         }
 
     @classmethod
@@ -103,7 +109,10 @@ class Task:
             created_at=datetime.fromisoformat(row[8]) if len(row) > 8 and row[8] else None,
             start_at=datetime.fromisoformat(row[9]) if len(row) > 9 and row[9] else None,
             finish_at=datetime.fromisoformat(row[10]) if len(row) > 10 and row[10] else None,
-            content_hash=row[11] if len(row) > 11 else None
+            content_hash=row[11] if len(row) > 11 else None,
+            estimate=float(row[12]) if len(row) > 12 and row[12] is not None else None,
+            order=int(row[13]) if len(row) > 13 and row[13] is not None else None,
+            time_spent=row[14] if len(row) > 14 else 0.0
         )
 
 
@@ -117,11 +126,25 @@ class TaskStats:
     completed_count: int = 0
     stopped_count: int = 0
     with_subtasks: int = 0
+    by_priority: Dict[str, int] = None
+    root_task_count: int = 0
+    parent_task_count: int = 0
+    total_estimate: float = 0.0
+    total_time_spent: float = 0.0
+    avg_estimate: float = 0.0
+    avg_time_spent: float = 0.0
+    overdue_count: int = 0
+    estimate_accuracy: float = 0.0
+    tag_usage: Dict[str, int] = None
 
     def __post_init__(self):
         """Initialize default values"""
         if self.by_status is None:
             self.by_status = {}
+        if self.by_priority is None:
+            self.by_priority = {}
+        if self.tag_usage is None:
+            self.tag_usage = {}
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization"""
@@ -132,7 +155,17 @@ class TaskStats:
             "in_progress_count": self.in_progress_count,
             "completed_count": self.completed_count,
             "stopped_count": self.stopped_count,
-            "with_subtasks": self.with_subtasks
+            "with_subtasks": self.with_subtasks,
+            "by_priority": self.by_priority,
+            "root_task_count": self.root_task_count,
+            "parent_task_count": self.parent_task_count,
+            "total_estimate": self.total_estimate,
+            "total_time_spent": self.total_time_spent,
+            "avg_estimate": self.avg_estimate,
+            "avg_time_spent": self.avg_time_spent,
+            "overdue_count": self.overdue_count,
+            "estimate_accuracy": self.estimate_accuracy,
+            "tag_usage": self.tag_usage
         }
 
 

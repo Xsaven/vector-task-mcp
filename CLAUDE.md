@@ -88,16 +88,12 @@ uv run main.py --working-dir ./
 ## Available MCP Tools
 - `task_create` - Create new task
 - `task_create_bulk` - Create multiple tasks
-- `task_update` - Update task fields
+- `task_update` - Update task fields (status, priority, tags, comment with append, add_tag, remove_tag)
 - `task_delete` / `task_delete_bulk` - Delete tasks
 - `task_list` - List/search tasks with filters
 - `task_get` - Get specific task by ID
-- `task_last` - Get last created task
 - `task_next` - Get next task to work on
-- `task_start` / `task_finish` / `task_stop` / `task_resume` - Task lifecycle
-- `task_comment` - Add/update task comments
-- `task_add_tag` / `task_remove_tag` / `task_get_all_tags` - Tag management
-- `task_stats` - Get task statistics
+- `task_stats` - Get task statistics (includes unique_tags)
 
 ## Important Notes
 - **sqlite-vec** працює як extension для SQLite, завантажується через `sqlite_vec.load(conn)`
