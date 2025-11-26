@@ -505,11 +505,23 @@ def create_server() -> FastMCP:
                     "message": f"Task with ID {task_id} not found"
                 }
 
-            return {
+            # Check for subtasks
+            subtask_ids = task_store.get_subtask_ids(task_id)
+
+            response = {
                 "success": True,
                 "task": task.to_dict(),
                 "message": "Task retrieved successfully"
             }
+
+            # Add subtask info if task has children
+            if subtask_ids:
+                response["subtask_ids"] = subtask_ids
+                next_child = task_store.get_next_child(task_id)
+                if next_child:
+                    response["next_child"] = next_child.to_dict()
+
+            return response
 
         except Exception as e:
             return {

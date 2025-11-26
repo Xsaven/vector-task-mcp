@@ -78,14 +78,15 @@ description: "Create task from description with analysis and estimation"
 </example>
 </guideline>
 <guideline id="workflow-step6">
-<text>STEP 6 - Formulate Task Specification</text>
+<text>STEP 6 - Formulate Task Specification with Context Links</text>
 <example>
 <phase name="title">Create concise title (max 10 words) capturing objective</phase>
 <phase name="content">Write detailed description with: objective, context, acceptance criteria, implementation hints</phase>
 <phase name="priority">Assign: critical | high | medium | low</phase>
 <phase name="tags">Add relevant tags: [category, domain, stack]</phase>
 <phase name="estimate">Set time estimate in hours</phase>
-<phase name="output">STORE-AS($TASK_SPEC = '{title, content, priority, tags, estimate}')</phase>
+<phase name="comment">Build initial comment with research context: → - Memory refs: list memory IDs from STORE-GET($PRIOR_WORK) (format: "Related memories: #ID1, #ID2") → - File refs: list key file paths from STORE-GET($CODEBASE_CONTEXT) (format: "Key files: path1, path2") → - Task refs: list related task IDs from STORE-GET($EXISTING_TASKS) (format: "Related tasks: #ID1, #ID2") → - Doc refs: list doc paths from STORE-GET($DOC_CONTEXT) if available</phase>
+<phase name="output">STORE-AS($TASK_SPEC = '{title, content, priority, tags, estimate, comment}')</phase>
 </example>
 </guideline>
 <guideline id="workflow-step7">
@@ -106,13 +107,14 @@ description: "Create task from description with analysis and estimation"
 </example>
 </guideline>
 <guideline id="workflow-step8">
-<text>STEP 8 - Create Task After Approval</text>
+<text>STEP 8 - Create Task After Approval (with context links in comment)</text>
 <example>
 <phase name="create">mcp__vector-task__task_create('{'."\n"
     .'                    title: "STORE-GET($TASK_SPEC).title",'."\n"
     .'                    content: "STORE-GET($TASK_SPEC).content",'."\n"
     .'                    priority: "STORE-GET($TASK_SPEC).priority",'."\n"
-    .'                    tags: STORE-GET($TASK_SPEC).tags'."\n"
+    .'                    tags: STORE-GET($TASK_SPEC).tags,'."\n"
+    .'                    comment: "STORE-GET($TASK_SPEC).comment"'."\n"
     .'                }')</phase>
 <phase name="capture">STORE-AS($CREATED_TASK_ID = 'task ID from response')</phase>
 </example>
@@ -167,9 +169,18 @@ description: "Create task from description with analysis and estimation"
 <example>Step 3: Codebase explored (if code-related) - relevant files, patterns, dependencies found</example>
 <example>Step 4: Documentation reviewed (if architecture/API) - specs, decisions documented</example>
 <example>Step 5: Sequential thinking analysis completed - complexity, estimate, priority determined</example>
-<example>Step 6: Task spec complete - title, content, priority, tags, estimate</example>
+<example>Step 6: Task spec complete - title, content, priority, tags, estimate, comment with context links</example>
 <example>Step 7: User approval explicitly received - YES/APPROVE/CONFIRM</example>
+<example>Step 8: Task created with comment containing memory IDs, file paths, related task IDs</example>
 <example>Step 9: STOP after creation - do NOT execute task</example>
+</guideline>
+<guideline id="comment-format">
+<text>Initial task comment structure for context preservation</text>
+<example key="memory-refs">Related memories: #42, #58, #73 (insights about {domain})</example>
+<example key="file-refs">Key files: src/Services/Auth.php:45, app/Models/User.php</example>
+<example key="task-refs">Related tasks: #12 (blocked-by), #15 (related)</example>
+<example key="doc-refs">Docs: .docs/architecture/auth-flow.md</example>
+<example key="notes">Notes: {any critical insights from research}</example>
 </guideline>
 </guidelines>
 <iron_rules>
@@ -202,6 +213,11 @@ description: "Create task from description with analysis and estimation"
 <text>This command ONLY creates tasks. NEVER execute the task after creation, regardless of size or complexity.</text>
 <why>Task creation and task execution are separate concerns. User decides when to execute via /task:next or /do commands.</why>
 <on_violation>STOP immediately. Return created task ID and let user decide next action.</on_violation>
+</rule>
+<rule id="comment-with-context" severity="critical">
+<text>MUST add initial comment with useful links: memory IDs from research, relevant file paths from codebase exploration, related task IDs.</text>
+<why>Comments preserve critical context for future execution. Without links, executor loses valuable research done during creation.</why>
+<on_violation>Add comment with: Memory refs (IDs from PRIOR_WORK), File refs (paths from CODEBASE_CONTEXT), Related tasks (from EXISTING_TASKS).</on_violation>
 </rule>
 <rule id="deep-research-mandatory" severity="critical">
 <text>MUST perform comprehensive research BEFORE formulating task: existing tasks, vector memory, codebase (if code-related), documentation.</text>

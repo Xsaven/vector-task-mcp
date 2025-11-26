@@ -95,7 +95,7 @@ GOAL(Explore codebase, identify targets, create execution plan)
 <guideline id="phase3-direct-execution">
 GOAL(Execute plan directly using Brain tools - no delegation)
 <example>
-<phase name="1">IF($IS_VECTOR_TASK === true) → THEN → [mcp__vector-task__task_start('{task_id: $VECTOR_TASK_ID}') → OUTPUT(📋 Vector task #{$VECTOR_TASK_ID} started)] → END-IF</phase>
+<phase name="1">IF($IS_VECTOR_TASK === true) → THEN → [mcp__vector-task__task_update('{task_id: $VECTOR_TASK_ID, status: "in_progress"}') → OUTPUT(📋 Vector task #{$VECTOR_TASK_ID} started)] → END-IF</phase>
 <phase name="2">FOREACH(step in $PLAN) → [OUTPUT(▶️ Step {N}: {step.description}) → IF(step.action === "read") → THEN → [Read('{step.file}') → STORE-AS($FILE_CONTENT[{N}] = 'File content')] → END-IF → IF(step.action === "edit") → THEN → [Read('{step.file}') → Edit('{step.file}', '{old_string}', '{new_string}')] → END-IF → IF(step.action === "write") → THEN → [Write('{step.file}', '{content}')] → END-IF → STORE-AS($STEP_RESULTS[{N}] = 'Result') → OUTPUT(✅ Step {N} complete)] → END-FOREACH</phase>
 <phase name="3">IF(step fails) → THEN → [Log error → Offer: Retry / Skip / Abort → WAIT for user decision] → END-IF</phase>
 </example>
@@ -105,8 +105,8 @@ GOAL(Report results and store learnings to vector memory)
 <example>
 <phase name="1">STORE-AS($SUMMARY = '{completed_steps, files_modified, outcome}')</phase>
 <phase name="2">mcp__vector-memory__store_memory('{content: "Completed: {$TASK}\\n\\nApproach: {steps}\\n\\nFiles: {list}\\n\\nLearnings: {insights}", category: "code-solution", tags: ["do:sync", "completed"]}')</phase>
-<phase name="3">IF($IS_VECTOR_TASK === true AND status === SUCCESS) → THEN → [mcp__vector-task__task_finish('{task_id: $VECTOR_TASK_ID}') → OUTPUT(📋 Vector task #{$VECTOR_TASK_ID} completed ✓)] → END-IF</phase>
-<phase name="4">IF($IS_VECTOR_TASK === true AND status === PARTIAL) → THEN → [mcp__vector-task__task_comment('{task_id: $VECTOR_TASK_ID, comment: "Partial completion: {completed}/{total} steps. Remaining: {list}", append: true}') → OUTPUT(📋 Vector task #{$VECTOR_TASK_ID} progress saved (partial))] → END-IF</phase>
+<phase name="3">IF($IS_VECTOR_TASK === true AND status === SUCCESS) → THEN → [mcp__vector-task__task_update('{task_id: $VECTOR_TASK_ID, status: "completed"}') → OUTPUT(📋 Vector task #{$VECTOR_TASK_ID} completed ✓)] → END-IF</phase>
+<phase name="4">IF($IS_VECTOR_TASK === true AND status === PARTIAL) → THEN → [mcp__vector-task__task_update('{task_id: $VECTOR_TASK_ID, comment: "Partial completion: {completed}/{total} steps. Remaining: {list}", append_comment: true}') → OUTPUT(📋 Vector task #{$VECTOR_TASK_ID} progress saved (partial))] → END-IF</phase>
 <phase name="5">OUTPUT( === COMPLETE === Task: {$TASK} | Status: {SUCCESS/PARTIAL/FAILED} ✓ Steps: {completed}/{total} | 📁 Files: {count} {outcomes})</phase>
 </example>
 </guideline>

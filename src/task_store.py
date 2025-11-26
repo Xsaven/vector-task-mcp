@@ -169,6 +169,92 @@ class TaskStore:
         # Recursively propagate to grandparent
         self._propagate_time_to_parents(conn, parent_id, time_delta)
 
+    def _propagate_status_to_parents(self, conn: sqlite3.Connection, task_id: int, new_status: str) -> None:
+        """
+        Recursively propagate status change to all parent tasks.
+
+        Args:
+            conn: Active database connection (must be within transaction)
+            task_id: Current task ID
+            new_status: Status to propagate to parents
+        """
+        # Get parent_id of current task
+        cursor = conn.execute('SELECT parent_id FROM tasks WHERE id = ?', (task_id,))
+        row = cursor.fetchone()
+        if not row or not row[0]:  # No parent
+            return
+
+        parent_id = row[0]
+
+        # Update parent's status
+        conn.execute(
+            'UPDATE tasks SET status = ? WHERE id = ?',
+            (new_status, parent_id)
+        )
+
+        # Recursively propagate to grandparent
+        self._propagate_status_to_parents(conn, parent_id, new_status)
+
+    def _update_parent_timestamps(self, conn: sqlite3.Connection, task_id: int, new_status: str) -> None:
+        """
+        Update parent timestamps based on child status changes.
+
+        - When child starts (in_progress): set parent start_at if first child starting and no completed siblings
+        - When child completes: set parent finish_at if all siblings are now completed
+
+        Recursively propagates up the parent chain.
+
+        Args:
+            conn: Active database connection (must be within transaction)
+            task_id: Current task ID
+            new_status: New status that triggered this update
+        """
+        # Get parent_id of current task
+        cursor = conn.execute('SELECT parent_id FROM tasks WHERE id = ?', (task_id,))
+        row = cursor.fetchone()
+        if not row or not row[0]:  # No parent
+            return
+
+        parent_id = row[0]
+        now = datetime.utcnow().isoformat()
+
+        if new_status == 'in_progress':
+            # Set parent start_at ONLY if:
+            # 1. Parent has no start_at yet
+            # 2. No siblings are completed (this is the first activity in hierarchy)
+            cursor = conn.execute('''
+                SELECT
+                    (SELECT start_at FROM tasks WHERE id = ?) as parent_start_at,
+                    (SELECT COUNT(*) FROM tasks WHERE parent_id = ? AND status = 'completed') as completed_siblings
+            ''', (parent_id, parent_id))
+            result = cursor.fetchone()
+            parent_start_at = result[0]
+            completed_siblings = result[1]
+
+            if parent_start_at is None and completed_siblings == 0:
+                conn.execute(
+                    'UPDATE tasks SET start_at = ? WHERE id = ?',
+                    (now, parent_id)
+                )
+                # Recursively propagate start_at up
+                self._update_parent_timestamps(conn, parent_id, new_status)
+
+        elif new_status == 'completed':
+            # Set parent finish_at ONLY if ALL siblings are completed
+            cursor = conn.execute('''
+                SELECT COUNT(*) FROM tasks
+                WHERE parent_id = ? AND status != 'completed'
+            ''', (parent_id,))
+            non_completed = cursor.fetchone()[0]
+
+            if non_completed == 0:
+                conn.execute(
+                    'UPDATE tasks SET finish_at = ? WHERE id = ?',
+                    (now, parent_id)
+                )
+                # Recursively propagate finish_at up
+                self._update_parent_timestamps(conn, parent_id, new_status)
+
     def create_task(self, title: str, content: str, parent_id: Optional[int] = None, comment: Optional[str] = None, priority: Optional[str] = None, tags: Optional[List[str]] = None, estimate: Optional[float] = None, order: Optional[int] = None) -> Dict[str, Any]:
         """
         Create a new task with vector embedding.
@@ -476,9 +562,12 @@ class TaskStore:
             # Auto-set timestamps on status changes
             # Auto-calculate time_spent on status change to stopped/completed
             time_delta = 0.0  # Track time spent for parent propagation
+            status_changed = False
+            new_status = None
             if 'status' in validated_kwargs:
                 current_status = existing[3]  # status is 4th column (index 3)
                 new_status = validated_kwargs['status']
+                status_changed = True
 
                 # Auto-set start_at when changing to in_progress (only if not explicitly provided)
                 if new_status == 'in_progress' and current_status != 'in_progress':
@@ -646,6 +735,11 @@ class TaskStore:
             # Propagate time_delta to parent tasks (recursive)
             if time_delta > 0:
                 self._propagate_time_to_parents(conn, task_id, time_delta)
+
+            # Propagate status and timestamps to parent tasks
+            if status_changed and new_status:
+                self._propagate_status_to_parents(conn, task_id, new_status)
+                self._update_parent_timestamps(conn, task_id, new_status)
 
             conn.commit()
 
@@ -831,6 +925,110 @@ class TaskStore:
 
         except Exception as e:
             raise RuntimeError(f"Failed to get task by ID: {e}")
+        finally:
+            conn.close()
+
+    def get_subtask_ids(self, parent_id: int) -> list[int]:
+        """
+        Get list of subtask IDs for a parent task.
+
+        Args:
+            parent_id: Parent task ID
+
+        Returns:
+            List of subtask IDs ordered by order ASC, created_at ASC
+        """
+        try:
+            conn = self._get_connection()
+        except Exception as e:
+            raise RuntimeError(f"Failed to get subtask IDs: {e}")
+
+        try:
+            results = conn.execute("""
+                SELECT id
+                FROM tasks
+                WHERE parent_id = ?
+                ORDER BY "order" ASC NULLS LAST, created_at ASC
+            """, (parent_id,)).fetchall()
+
+            return [row[0] for row in results]
+
+        except Exception as e:
+            raise RuntimeError(f"Failed to get subtask IDs: {e}")
+        finally:
+            conn.close()
+
+    def get_next_child(self, parent_id: int) -> Optional[Task]:
+        """
+        Get the next child task to work on for a given parent.
+
+        Logic (same as get_next_task but scoped to children):
+        1. First check: any child with status="in_progress" → return first one
+        2. If none in_progress: find last completed child, return first pending child created after it
+        3. If no completed: return first pending child by order/created_at
+
+        Args:
+            parent_id: Parent task ID
+
+        Returns:
+            Task object or None if no suitable child task found
+        """
+        try:
+            conn = self._get_connection()
+        except Exception as e:
+            raise RuntimeError(f"Failed to get next child task: {e}")
+
+        try:
+            # First check for in_progress child tasks
+            in_progress = conn.execute("""
+                SELECT id, parent_id, status, priority, title, content, comment, tags, created_at, start_at, finish_at, content_hash, estimate, "order", time_spent
+                FROM tasks
+                WHERE status = ? AND parent_id = ?
+                ORDER BY "order" ASC NULLS LAST, created_at ASC
+                LIMIT 1
+            """, (TaskStatus.IN_PROGRESS.value, parent_id)).fetchone()
+
+            if in_progress:
+                return Task.from_db_row(in_progress)
+
+            # Find last completed child task
+            last_completed = conn.execute("""
+                SELECT created_at
+                FROM tasks
+                WHERE status = ? AND parent_id = ?
+                ORDER BY created_at DESC
+                LIMIT 1
+            """, (TaskStatus.COMPLETED.value, parent_id)).fetchone()
+
+            if last_completed:
+                # Get first pending child task created after last completed
+                next_pending = conn.execute("""
+                    SELECT id, parent_id, status, priority, title, content, comment, tags, created_at, start_at, finish_at, content_hash, estimate, "order", time_spent
+                    FROM tasks
+                    WHERE status = ? AND parent_id = ? AND created_at > ?
+                    ORDER BY "order" ASC NULLS LAST, CASE priority WHEN 'critical' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 WHEN 'low' THEN 4 END, created_at ASC
+                    LIMIT 1
+                """, (TaskStatus.PENDING.value, parent_id, last_completed[0])).fetchone()
+
+                if next_pending:
+                    return Task.from_db_row(next_pending)
+
+            # No completed child tasks or no pending after completed, get first pending child
+            first_pending = conn.execute("""
+                SELECT id, parent_id, status, priority, title, content, comment, tags, created_at, start_at, finish_at, content_hash, estimate, "order", time_spent
+                FROM tasks
+                WHERE status = ? AND parent_id = ?
+                ORDER BY "order" ASC NULLS LAST, CASE priority WHEN 'critical' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 WHEN 'low' THEN 4 END, created_at ASC
+                LIMIT 1
+            """, (TaskStatus.PENDING.value, parent_id)).fetchone()
+
+            if first_pending:
+                return Task.from_db_row(first_pending)
+
+            return None
+
+        except Exception as e:
+            raise RuntimeError(f"Failed to get next child task: {e}")
         finally:
             conn.close()
 
@@ -1350,6 +1548,7 @@ class TaskStore:
                     AVG(time_spent)
                 FROM tasks
                 WHERE time_spent > 0 AND {where_sql}
+                    AND id NOT IN (SELECT DISTINCT parent_id FROM tasks WHERE parent_id IS NOT NULL)
                 """,
                 params
             ).fetchone()
@@ -1364,6 +1563,7 @@ class TaskStore:
                 WHERE time_spent > estimate
                     AND estimate IS NOT NULL
                     AND {where_sql}
+                    AND id NOT IN (SELECT DISTINCT parent_id FROM tasks WHERE parent_id IS NOT NULL)
                 """,
                 params
             ).fetchone()[0]
@@ -1376,6 +1576,7 @@ class TaskStore:
                 WHERE estimate IS NOT NULL
                     AND time_spent > 0
                     AND {where_sql}
+                    AND id NOT IN (SELECT DISTINCT parent_id FROM tasks WHERE parent_id IS NOT NULL)
                 """,
                 params
             ).fetchall()
