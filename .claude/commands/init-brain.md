@@ -26,11 +26,6 @@ description: "Comprehensive Brain.php initialization - scans project, analyzes d
 <why>Prevents generic configurations that do not match project reality</why>
 <on_violation>Speculation leads to misaligned Brain behavior</on_violation>
 </rule>
-<rule id="preserve-existing" severity="critical">
-<text>Backup existing .brain/node/Brain.php before modifications</text>
-<why>Prevents data loss and enables rollback if needed</why>
-<on_violation>Data loss and inability to recover previous configuration</on_violation>
-</rule>
 <rule id="vector-memory-storage" severity="high">
 <text>Store all significant insights to vector memory with semantic tags</text>
 <why>Enables future context retrieval and knowledge accumulation</why>
@@ -60,6 +55,11 @@ description: "Comprehensive Brain.php initialization - scans project, analyzes d
 <text>ALWAYS analyze existing file content BEFORE enhancement If file has rules/guidelines - PRESERVE valuable existing, ADD only missing NEVER blindly overwrite populated files - merge intelligently Compare discovered patterns with existing config to find gaps</text>
 <why>Preserves manual customizations and avoids losing valuable existing configuration</why>
 <on_violation>Valuable existing configuration lost, manual work discarded</on_violation>
+</rule>
+<rule id="extract-to-env-variables" severity="critical">
+<text>ALL configurable values in generated code MUST use $this->var("KEY", default) WORKFLOW per file generation (6a, 6b, 7):   1. READ existing .brain/.env to get current variables   2. GENERATE code using $this->var("KEY", default) for configurable values   3. APPEND new variables to .env with # description and # variants: comments Variable candidates: thresholds, limits, toggles, versions, paths, model names Each variable: UPPER_SNAKE_CASE, sensible default, description, variants if applicable NEVER create empty/dummy variables - only those ACTUALLY USED in generated code</text>
+<why>Centralizes configuration, enables tuning without code changes, prevents magic values</why>
+<on_violation>Hardcoded values in code OR unused variables in .env</on_violation>
 </rule>
 </iron_rules>
 <guidelines>
@@ -99,27 +99,20 @@ GOAL(Deep analysis of project documentation to extract requirements and domain k
 <phase name="1">IF(STORE-GET($DOCS_CONTENT) !== null) → THEN → [Task(@agent-documentation-master, 'INPUT(STORE-GET($DOCS_CONTENT))', 'TASK → [(Analyze all documentation files + Extract: project goals, requirements, constraints, domain concepts + Identify: key workflows, business rules, integration points + Map documentation to Brain configuration needs + Suggest: custom includes, rules, guidelines based on docs)] → END-TASK', 'OUTPUT({goals: [...], requirements: [...], domain_concepts: [...], suggested_config: {...}})') → STORE-AS($DOCS_ANALYSIS)] → ELSE → [No documentation found - will rely on codebase analysis only → STORE-AS($DOCS_ANALYSIS = 'null')] → END-IF</phase>
 </example>
 </guideline>
-<guideline id="phase3-5-vector-memory-mining">
+<guideline id="phase3-5-vector-memory-research">
 
-GOAL(Extract CRITICAL accumulated knowledge from vector memory that MUST be in instructions)
-NOTE(Vector memory may contain crucial insights discovered over time NOT everything - only HIGH-VALUE knowledge that cannot be found via normal search Focus: architectural decisions, gotchas, patterns that prevent repeated mistakes)
+GOAL(Deep research of vector memory via specialized VectorMaster agents for each target file)
+NOTE(Vector memory may be LARGE - simple search is insufficient Each file needs DEEP recursive semantic research by dedicated agent VectorMaster performs multi-probe strategy: DECOMPOSE → MULTI-SEARCH → ANALYZE Focus: knowledge that CANNOT be found via codebase exploration)
 
 <example>
-<phase name="parallel-vector-mining">TASK → [(mcp__vector-memory__search_memories('INPUT(query: "architecture decision critical constraint must always never" && category: "architecture" && limit: 10)') + STORE-AS($ARCH_DECISIONS) + mcp__vector-memory__search_memories('INPUT(query: "critical bug gotcha always remember never forget important" && category: "bug-fix" && limit: 10)') + STORE-AS($CRITICAL_GOTCHAS) + mcp__vector-memory__search_memories('INPUT(query: "project pattern convention always use must follow" && category: "code-solution" && limit: 10)') + STORE-AS($PROJECT_PATTERNS) + mcp__vector-memory__search_memories('INPUT(query: "lesson learned important insight discovery realization" && category: "learning" && limit: 10)') + STORE-AS($LESSONS_LEARNED))] → END-TASK</phase>
-<phase name="2">Task(@agent-agent-master, 'INPUT(STORE-GET($ARCH_DECISIONS) && STORE-GET($CRITICAL_GOTCHAS) && STORE-GET($PROJECT_PATTERNS) && STORE-GET($LESSONS_LEARNED))', 'TASK → [(Analyze ALL mined vector memory insights + FILTER: Keep ONLY insights meeting CRITICAL criteria: +   - Would cause significant issues if forgotten +   - Cannot be easily discovered via normal search +   - Represents hard-won knowledge or painful lessons +   - Applies broadly across multiple tasks/agents +  + EXCLUDE: +   - Generic information easily searchable +   - One-time fixes without broader applicability +   - Outdated or superseded knowledge +   - Already covered by standard includes +  + CATEGORIZE filtered insights for distribution: +   - COMMON: Universal constraints (all components need) +   - MASTER: Agent execution patterns (agents need) +   - BRAIN: Orchestration insights (Brain needs) +  + Generate concise rule/guideline code for each critical insight)] → END-TASK', 'OUTPUT({critical_common: [...], critical_master: [...], critical_brain: [...], filtered_count: N, reason: {...}})')</phase>
-<phase name="3">STORE-AS($VECTOR_CRITICAL_INSIGHTS)</phase>
-<phase name="4">NOTE(Critical vector insights will be merged into DISTRIBUTED_GUIDELINES in Phase 6)</phase>
+<phase name="parallel-vector-research-agents">TASK → [(Task(@agent-vector-master, 'CONTEXT(Target file: .brain/node/Common.php This file is shared by Brain AND all Agents)', 'TASK → [(DEEP RESEARCH vector memory for Common.php guidelines +  + Search domains (multi-probe each): +   - Environment constraints: Docker, CI/CD, containerization rules +   - Tech stack: PHP version, Node version, database conventions +   - Universal coding standards: naming, structure, organization +   - Shared configuration: env vars, paths, external services +   - Development tooling: linters, formatters, analyzers +   - Infrastructure patterns: services, networking, deployment +  + For EACH domain: +   1. Decompose into 2-3 semantic probes +   2. Execute searches with different query angles +   3. Cross-reference findings +   4. Extract ACTIONABLE insights only +  + FILTER criteria: +   - Must apply to BOTH Brain AND Agents (universal) +   - Cannot be discovered via normal codebase search +   - Represents hard-won knowledge or critical constraints +  + OUTPUT: Detailed recommendations for Common.php rules/guidelines)] → END-TASK', 'OUTPUT({recommendations: [...], insights_found: N, domains_covered: [...], confidence: high|medium|low})') + STORE-AS($VECTOR_COMMON_RESEARCH) + Task(@agent-vector-master, 'CONTEXT(Target file: .brain/node/Master.php This file is shared by ALL Agents only (NOT Brain))', 'TASK → [(DEEP RESEARCH vector memory for Master.php guidelines +  + Search domains (multi-probe each): +   - Agent execution patterns: how agents should approach tasks +   - Tool usage constraints: when to use which tools, anti-patterns +   - Task handling: decomposition, estimation, status flow +   - Code generation patterns: templates, scaffolding, conventions +   - Test writing conventions: test structure, coverage, mocking +   - Quality gates: validation before completion, review criteria +  + For EACH domain: +   1. Decompose into 2-3 semantic probes +   2. Execute searches with different query angles +   3. Cross-reference findings +   4. Extract ACTIONABLE insights only +  + FILTER criteria: +   - Must apply to Agents execution (not Brain orchestration) +   - Cannot be discovered via normal codebase search +   - Represents patterns that prevent repeated mistakes +  + OUTPUT: Detailed recommendations for Master.php rules/guidelines)] → END-TASK', 'OUTPUT({recommendations: [...], insights_found: N, domains_covered: [...], confidence: high|medium|low})') + STORE-AS($VECTOR_MASTER_RESEARCH) + Task(@agent-vector-master, 'CONTEXT(Target file: .brain/node/Brain.php This file is Brain-specific only (orchestration layer))', 'TASK → [(DEEP RESEARCH vector memory for Brain.php guidelines +  + Search domains (multi-probe each): +   - Orchestration rules: delegation strategies, agent selection +   - Brain policies: approval chains, escalation patterns +   - Workflow coordination: multi-agent orchestration, sequencing +   - Response synthesis: how to merge agent results, validation +   - Brain-level validation: quality gates, trust management +   - Context management: memory limits, compaction triggers +  + For EACH domain: +   1. Decompose into 2-3 semantic probes +   2. Execute searches with different query angles +   3. Cross-reference findings +   4. Extract ACTIONABLE insights only +  + FILTER criteria: +   - Must apply to Brain orchestration (not agent execution) +   - Cannot be discovered via normal codebase search +   - Represents critical coordination knowledge +  + OUTPUT: Detailed recommendations for Brain.php rules/guidelines)] → END-TASK', 'OUTPUT({recommendations: [...], insights_found: N, domains_covered: [...], confidence: high|medium|low})') + STORE-AS($VECTOR_BRAIN_RESEARCH))] → END-TASK</phase>
+<phase name="2">Merge and validate all VectorMaster research results</phase>
+<phase name="3">Task(@agent-agent-master, 'INPUT(STORE-GET($VECTOR_COMMON_RESEARCH) && STORE-GET($VECTOR_MASTER_RESEARCH) && STORE-GET($VECTOR_BRAIN_RESEARCH))', 'TASK → [(VALIDATE and CONSOLIDATE VectorMaster research results +  + For EACH file research result: +   1. Verify recommendations are correctly categorized (Common/Master/Brain) +   2. Check for cross-file duplicates - keep in most appropriate file +   3. Validate insights are truly unique (not in standard includes) +   4. Assess confidence level of each recommendation +  + QUALITY GATES: +   - Reject low-confidence insights without strong evidence +   - Reject generic insights that apply everywhere (noise) +   - Reject outdated or superseded knowledge +  + OUTPUT: Validated insights ready for Phase 6 distribution)] → END-TASK', 'OUTPUT({critical_common: [...], critical_master: [...], critical_brain: [...], total_found: N, total_validated: N, rejected: N, rejection_reasons: [...]})')</phase>
+<phase name="4">STORE-AS($VECTOR_CRITICAL_INSIGHTS)</phase>
+<phase name="5">NOTE(Validated vector insights will be merged into DISTRIBUTED_GUIDELINES in Phase 6)</phase>
 </example>
 </guideline>
-<guideline id="phase4-best-practices-research">
-GOAL(Research current best practices for discovered technologies)
-<example>
-NOTE(Execute research tasks in parallel for each major technology)
-<phase name="1">FOREACH(STORE-GET($TECH_STACK.frameworks)) → [Task(@agent-web-research-master, 'INPUT(STORE-GET($CURRENT_YEAR))', 'TASK → [(WebSearch({framework} best practices {current_year}) + WebSearch({framework} architectural patterns {current_year}) + WebSearch({framework} code organization {current_year}) + Extract: recommended patterns, conventions, anti-patterns + Identify: framework-specific Brain configuration needs)] → END-TASK', 'OUTPUT({framework: "...", best_practices: [...], recommendations: [...]})')] → END-FOREACH</phase>
-<phase name="2">STORE-AS($BEST_PRACTICES = 'Collected results from all research tasks')</phase>
-</example>
-</guideline>
-<guideline id="phase5-project-includes">
+<guideline id="phase4-project-includes">
 
 GOAL(Analyze and suggest PROJECT-SPECIFIC includes only (NOT standard includes))
 NOTE(IMPORTANT: Brain already has a Variation with standard includes configured This phase focuses ONLY on .brain/node/Includes/ FORBIDDEN: Suggesting or modifying vendor/jarvis-brain/core/src/Includes/*)
@@ -127,111 +120,91 @@ NOTE(IMPORTANT: Brain already has a Variation with standard includes configured 
 <example>
 <phase name="1">Task(@agent-explore, 'TASK → [(Scan .brain/node/Includes/ for existing project includes + Read each include file to understand its purpose + Identify gaps in project-specific configuration)] → END-TASK', 'CONTEXT(Project-specific includes discovery)')</phase>
 <phase name="2">STORE-AS($EXISTING_PROJECT_INCLUDES)</phase>
-<phase name="3">Task(@agent-agent-master, 'INPUT(STORE-GET($EXISTING_PROJECT_INCLUDES) && STORE-GET($PROJECT_CONTEXT) && STORE-GET($DOCS_ANALYSIS) && STORE-GET($BEST_PRACTICES))', 'TASK → [(Analyze existing project-specific includes in .brain/node/Includes/ + Map project needs to include capabilities + Identify MISSING project-specific includes that should be CREATED + DO NOT suggest standard includes from vendor/jarvis-brain/core/src/Includes + Generate list of new project includes to create via brain make:include)] → END-TASK', 'OUTPUT({existing_project_includes: [...], suggested_new_includes: [...], rationale: {...}})')</phase>
+<phase name="3">Task(@agent-agent-master, 'INPUT(STORE-GET($EXISTING_PROJECT_INCLUDES) && STORE-GET($PROJECT_CONTEXT) && STORE-GET($DOCS_ANALYSIS))', 'TASK → [(Analyze existing project-specific includes in .brain/node/Includes/ + Map project needs to include capabilities + Identify MISSING project-specific includes that should be CREATED + DO NOT suggest standard includes from vendor/jarvis-brain/core/src/Includes + Generate list of new project includes to create via brain make:include)] → END-TASK', 'OUTPUT({existing_project_includes: [...], suggested_new_includes: [...], rationale: {...}})')</phase>
 <phase name="4">STORE-AS($PROJECT_INCLUDES_RECOMMENDATION)</phase>
 </example>
 </guideline>
-<guideline id="phase6-smart-distribution">
+<guideline id="phase5-smart-distribution">
 
 GOAL(Categorize discovered rules/guidelines into Common, Master, or Brain files)
 NOTE(CRITICAL: Each rule MUST go to exactly ONE file to avoid duplication .brain/node/Common.php - Shared by Brain AND all Agents .brain/node/Master.php - Shared by ALL Agents only .brain/node/Brain.php - Brain-specific only)
 
 <example>
-<phase name="1">Task(@agent-agent-master, 'INPUT(STORE-GET($PROJECT_CONTEXT) && STORE-GET($ENVIRONMENT_CONTEXT) && STORE-GET($DOCS_ANALYSIS) && STORE-GET($BEST_PRACTICES) && STORE-GET($ARCHITECTURE_PATTERNS) && STORE-GET($VECTOR_CRITICAL_INSIGHTS))', 'TASK → [(Analyze ALL discovered project patterns, rules, AND critical vector insights + MERGE VECTOR_CRITICAL_INSIGHTS into distribution (already categorized) + CATEGORIZE remaining rules into exactly ONE target file: +  + COMMON.PHP (Brain + ALL Agents): +   - Docker/container environment rules (ports, services, networks) +   - CI/CD pipeline awareness (test commands, build steps) +   - Project tech stack rules (PHP version, Node version, database type) +   - Universal coding standards (naming conventions, file structure) +   - Shared configuration (env vars, paths, external services) +   - Development tooling rules (linters, formatters, analyzers) +  + MASTER.PHP (ALL Agents only, NOT Brain): +   - Agent execution patterns (how agents should approach tasks) +   - Tool usage constraints (when to use which tools) +   - Task handling guidelines (decomposition, estimation, status flow) +   - Code generation patterns (templates, scaffolding) +   - Test writing conventions (test structure, coverage expectations) +   - Agent-specific quality gates (validation before completion) +  + BRAIN.PHP (Brain-specific only): +   - Orchestration rules (delegation strategies, agent selection) +   - Brain-specific policies (approval chains, escalation) +   - Workflow coordination (multi-agent orchestration) +   - Response synthesis (how to merge agent results) +   - Brain-level validation (response quality gates) +  + Generate PHP Builder API code for each category + Use $this->rule() for constraints, $this->guideline() for patterns)] → END-TASK', 'OUTPUT({common: [{id, type, code}], master: [{id, type, code}], brain: [{id, type, code}], rationale: {...}})')</phase>
+<phase name="1">Task(@agent-agent-master, 'INPUT(STORE-GET($PROJECT_CONTEXT) && STORE-GET($ENVIRONMENT_CONTEXT) && STORE-GET($DOCS_ANALYSIS) && STORE-GET($ARCHITECTURE_PATTERNS) && STORE-GET($VECTOR_CRITICAL_INSIGHTS))', 'TASK → [(Analyze ALL discovered project patterns, rules, AND critical vector insights + MERGE VECTOR_CRITICAL_INSIGHTS into distribution (already categorized) + CATEGORIZE remaining rules into exactly ONE target file: +  + COMMON.PHP (Brain + ALL Agents): +   - Docker/container environment rules (ports, services, networks) +   - CI/CD pipeline awareness (test commands, build steps) +   - Project tech stack rules (PHP version, Node version, database type) +   - Universal coding standards (naming conventions, file structure) +   - Shared configuration (env vars, paths, external services) +   - Development tooling rules (linters, formatters, analyzers) +  + MASTER.PHP (ALL Agents only, NOT Brain): +   - Agent execution patterns (how agents should approach tasks) +   - Tool usage constraints (when to use which tools) +   - Task handling guidelines (decomposition, estimation, status flow) +   - Code generation patterns (templates, scaffolding) +   - Test writing conventions (test structure, coverage expectations) +   - Agent-specific quality gates (validation before completion) +  + BRAIN.PHP (Brain-specific only): +   - Orchestration rules (delegation strategies, agent selection) +   - Brain-specific policies (approval chains, escalation) +   - Workflow coordination (multi-agent orchestration) +   - Response synthesis (how to merge agent results) +   - Brain-level validation (response quality gates) +  + Generate PHP Builder API code for each category + Use $this->rule() for constraints, $this->guideline() for patterns)] → END-TASK', 'OUTPUT({common: [{id, type, code}], master: [{id, type, code}], brain: [{id, type, code}], rationale: {...}})')</phase>
 <phase name="2">STORE-AS($DISTRIBUTED_GUIDELINES)</phase>
 </example>
 </guideline>
-<guideline id="phase6a-common-enhancement">
+<guideline id="phase5a-common-enhancement">
 
 GOAL(Enhance Common.php with shared project rules for Brain AND all Agents)
 NOTE(Common.php is included by BOTH BrainIncludesTrait AND AgentIncludesTrait Rules here apply universally - avoid agent-specific or brain-specific content Focus: environment, tech stack, coding standards, shared configuration)
 
 <example>
-<phase name="1">Backup existing Common.php</phase>
-<phase name="2">Bash(cp .brain/node/Common.php .brain/node/Common.php.backup) → [Create backup before modification] → END-Bash</phase>
-<phase name="3">Read('.brain/node/Common.php')</phase>
-<phase name="4">STORE-AS($CURRENT_COMMON_CONFIG)</phase>
-<phase name="5">Task(@agent-prompt-master, 'INPUT(STORE-GET($CURRENT_COMMON_CONFIG) && STORE-GET($DISTRIBUTED_GUIDELINES.common) && STORE-GET($ENVIRONMENT_CONTEXT))', 'TASK → [(PRESERVE existing class structure, namespace, and extends IncludeArchetype + IF(CURRENT_COMMON_CONFIG.is_populated) → THEN → [MERGE MODE: File has existing content →   - KEEP all existing rules/guidelines that are still relevant →   - UPDATE rules if new discovery provides better info (same id, improved text) →   - ADD only NEW rules/guidelines not already present →   - REMOVE nothing unless explicitly obsolete →   - Compare rule IDs to avoid duplicates] → ELSE → [FRESH MODE: File is empty/skeleton - add all discovered rules] → END-IF + Focus on environment and universal rules: +   - Docker/container configuration awareness +   - Tech stack version constraints +   - Universal coding conventions +   - Shared infrastructure knowledge + Apply prompt engineering: clarity, brevity, token efficiency)] → END-TASK', 'OUTPUT({common_php_content: "...", rules_kept: [...], rules_added: [...], rules_updated: [...]})')</phase>
-<phase name="6">Write enhanced Common.php</phase>
-<phase name="7">STORE-AS($ENHANCED_COMMON_PHP)</phase>
-<phase name="8">NOTE(Common.php enhanced with shared project configuration)</phase>
+<phase name="1">Read existing Common.php and .env</phase>
+<phase name="2">TASK → [(Read('.brain/node/Common.php') + IF(.brain/.env exists) → THEN → [Read('.brain/.env') → STORE-AS($EXISTING_ENV)] → ELSE → [STORE-AS($EXISTING_ENV = '')] → END-IF)] → END-TASK</phase>
+<phase name="3">STORE-AS($CURRENT_COMMON_CONFIG)</phase>
+<phase name="4">Task(@agent-prompt-master, 'INPUT(STORE-GET($CURRENT_COMMON_CONFIG) && STORE-GET($DISTRIBUTED_GUIDELINES.common) && STORE-GET($ENVIRONMENT_CONTEXT))', 'TASK → [(PRESERVE existing class structure, namespace, and extends IncludeArchetype + IF(CURRENT_COMMON_CONFIG.is_populated) → THEN → [MERGE MODE: File has existing content →   - KEEP all existing rules/guidelines that are still relevant →   - UPDATE rules if new discovery provides better info (same id, improved text) →   - ADD only NEW rules/guidelines not already present →   - REMOVE nothing unless explicitly obsolete →   - Compare rule IDs to avoid duplicates] → ELSE → [FRESH MODE: File is empty/skeleton - add all discovered rules] → END-IF + Focus on environment and universal rules: +   - Docker/container configuration awareness +   - Tech stack version constraints +   - Universal coding conventions +   - Shared infrastructure knowledge +  + CRITICAL - GENERATE CODE WITH $this->var() IMMEDIATELY: +   WRONG: ->text("PHP version must be 8.3") +   RIGHT: ->text(["PHP version must be", $this->var("PHP_VERSION", "8.3")]) +   WRONG: $limit = 100; +   RIGHT: $limit = $this->var("MAX_LINE_LENGTH", 100); +  +   For EACH configurable value in generated code: +     1. USE $this->var("KEY", default) IN THE CODE IMMEDIATELY +     2. COLLECT to env_vars: {name: "KEY", default: "value", description: "...", variants: "..."} +  +   Candidates: PHP_VERSION, NODE_VERSION, DATABASE_TYPE, DOCKER_ENABLED +   Candidates: PHPSTAN_LEVEL, TEST_COVERAGE_MIN, MAX_LINE_LENGTH +  + Apply prompt engineering: clarity, brevity, token efficiency)] → END-TASK', 'OUTPUT({common_php_content: "...", rules_kept: [...], rules_added: [...], rules_updated: [...], env_vars: [{name, default, description, variants}]})')</phase>
+<phase name="5">Brain receives PromptMaster response with content + env_vars</phase>
+<phase name="6">STORE-AS($ENHANCED_COMMON_PHP)</phase>
+<phase name="7">TASK → [(Write .brain/node/Common.php from ENHANCED_COMMON_PHP.common_php_content + IF(ENHANCED_COMMON_PHP.env_vars not empty) → THEN → [APPEND to .brain/.env: →   # ═══ COMMON ═══ (if not already present) →   For EACH env_var in ENHANCED_COMMON_PHP.env_vars: →     IF var.name NOT in EXISTING_ENV: →       # {var.description} →       # variants: {var.variants} →       {var.name}={var.default}] → END-IF)] → END-TASK</phase>
+<phase name="8">NOTE(Common.php written + new env vars appended to .env)</phase>
 </example>
 </guideline>
-<guideline id="phase6b-master-enhancement">
+<guideline id="phase5b-master-enhancement">
 
 GOAL(Enhance Master.php with agent-specific rules shared by ALL Agents)
 NOTE(Master.php is included by AgentIncludesTrait only (NOT Brain) Rules here apply to all agents but NOT to Brain orchestration Focus: execution patterns, tool usage, task handling, code generation)
 
 <example>
-<phase name="1">Backup existing Master.php</phase>
-<phase name="2">Bash(cp .brain/node/Master.php .brain/node/Master.php.backup) → [Create backup before modification] → END-Bash</phase>
-<phase name="3">Read('.brain/node/Master.php')</phase>
-<phase name="4">STORE-AS($CURRENT_MASTER_CONFIG)</phase>
-<phase name="5">Task(@agent-prompt-master, 'INPUT(STORE-GET($CURRENT_MASTER_CONFIG) && STORE-GET($DISTRIBUTED_GUIDELINES.master) && STORE-GET($ARCHITECTURE_PATTERNS))', 'TASK → [(PRESERVE existing class structure, namespace, and extends IncludeArchetype + IF(CURRENT_MASTER_CONFIG.is_populated) → THEN → [MERGE MODE: File has existing content →   - KEEP all existing rules/guidelines that are still relevant →   - UPDATE rules if new discovery provides better info (same id, improved text) →   - ADD only NEW rules/guidelines not already present →   - REMOVE nothing unless explicitly obsolete →   - Compare rule IDs to avoid duplicates] → ELSE → [FRESH MODE: File is empty/skeleton - add all discovered rules] → END-IF + Focus on agent execution patterns: +   - How agents should approach project tasks +   - Tool usage patterns for this project +   - Code generation conventions +   - Test writing patterns +   - Quality gates before task completion + Apply prompt engineering: clarity, brevity, token efficiency)] → END-TASK', 'OUTPUT({master_php_content: "...", rules_kept: [...], rules_added: [...], rules_updated: [...]})')</phase>
-<phase name="6">Write enhanced Master.php</phase>
-<phase name="7">STORE-AS($ENHANCED_MASTER_PHP)</phase>
-<phase name="8">NOTE(Master.php enhanced with agent-specific project configuration)</phase>
+<phase name="1">Read existing Master.php</phase>
+<phase name="2">Read('.brain/node/Master.php')</phase>
+<phase name="3">STORE-AS($CURRENT_MASTER_CONFIG)</phase>
+<phase name="4">Task(@agent-prompt-master, 'INPUT(STORE-GET($CURRENT_MASTER_CONFIG) && STORE-GET($DISTRIBUTED_GUIDELINES.master) && STORE-GET($ARCHITECTURE_PATTERNS))', 'TASK → [(PRESERVE existing class structure, namespace, and extends IncludeArchetype + IF(CURRENT_MASTER_CONFIG.is_populated) → THEN → [MERGE MODE: File has existing content →   - KEEP all existing rules/guidelines that are still relevant →   - UPDATE rules if new discovery provides better info (same id, improved text) →   - ADD only NEW rules/guidelines not already present →   - REMOVE nothing unless explicitly obsolete →   - Compare rule IDs to avoid duplicates] → ELSE → [FRESH MODE: File is empty/skeleton - add all discovered rules] → END-IF + Focus on agent execution patterns: +   - How agents should approach project tasks +   - Tool usage patterns for this project +   - Code generation conventions +   - Test writing patterns +   - Quality gates before task completion +  + CRITICAL - GENERATE CODE WITH $this->var() IMMEDIATELY: +   WRONG: ->text("Max task estimate is 8 hours") +   RIGHT: ->text(["Max task estimate is", $this->var("MAX_TASK_ESTIMATE_HOURS", 8), "hours"]) +   WRONG: $model = "sonnet"; +   RIGHT: $model = $this->var("DEFAULT_AGENT_MODEL", "sonnet"); +  +   For EACH configurable value in generated code: +     1. USE $this->var("KEY", default) IN THE CODE IMMEDIATELY +     2. COLLECT to env_vars: {name: "KEY", default: "value", description: "...", variants: "..."} +  +   Candidates: MAX_TASK_ESTIMATE_HOURS, DEFAULT_AGENT_MODEL, PARALLEL_TASKS +   Candidates: REQUIRE_TESTS, MIN_COVERAGE, CODE_REVIEW_ENABLED +  + Apply prompt engineering: clarity, brevity, token efficiency)] → END-TASK', 'OUTPUT({master_php_content: "...", rules_kept: [...], rules_added: [...], rules_updated: [...], env_vars: [{name, default, description, variants}]})')</phase>
+<phase name="5">Brain receives PromptMaster response with content + env_vars</phase>
+<phase name="6">STORE-AS($ENHANCED_MASTER_PHP)</phase>
+<phase name="7">TASK → [(Write .brain/node/Master.php from ENHANCED_MASTER_PHP.master_php_content + IF(ENHANCED_MASTER_PHP.env_vars not empty) → THEN → [APPEND to .brain/.env: →   # ═══ MASTER ═══ (if not already present) →   For EACH env_var in ENHANCED_MASTER_PHP.env_vars: →     IF var.name NOT in EXISTING_ENV: →       # {var.description} →       # variants: {var.variants} →       {var.name}={var.default}] → END-IF)] → END-TASK</phase>
+<phase name="8">NOTE(Master.php written + new env vars appended to .env)</phase>
 </example>
 </guideline>
-<guideline id="phase7-brain-enhancement">
+<guideline id="phase6-brain-enhancement">
 
 GOAL(Enhance Brain.php with Brain-specific orchestration rules ONLY)
 NOTE(CRITICAL: Preserve ALL existing #[Includes()] attributes - they define the Variation ONLY add Brain-specific rules (orchestration, delegation, synthesis) Common rules go to Common.php, agent rules go to Master.php)
 
 <example>
-<phase name="1">Backup existing Brain.php</phase>
-<phase name="2">Bash(cp .brain/node/Brain.php .brain/node/Brain.php.backup) → [Create backup before modification] → END-Bash</phase>
-<phase name="3">Enhance handle() method with Brain-specific content only</phase>
-<phase name="4">Task(@agent-prompt-master, 'INPUT(STORE-GET($CURRENT_BRAIN_CONFIG) && STORE-GET($PROJECT_INCLUDES_RECOMMENDATION) && STORE-GET($DISTRIBUTED_GUIDELINES.brain) && STORE-GET($PROJECT_CONTEXT))', 'TASK → [(PRESERVE existing #[Includes()] attributes (Variation) - DO NOT MODIFY + PRESERVE existing class structure and namespace + IF(CURRENT_BRAIN_CONFIG.is_populated) → THEN → [MERGE MODE: File has existing handle() content →   - KEEP all existing rules/guidelines in handle() that are still relevant →   - UPDATE rules if new discovery provides better info (same id, improved text) →   - ADD only NEW Brain-specific rules not already present →   - REMOVE nothing unless explicitly obsolete →   - Compare rule IDs to avoid duplicates] → ELSE → [FRESH MODE: handle() is empty/skeleton - add all Brain-specific rules] → END-IF + Focus on Brain-specific rules only (Common/Master rules already distributed): +   - Orchestration and delegation strategies +   - Agent selection criteria for this project +   - Response synthesis patterns +   - Brain-level validation gates + If suggested new project includes, add to #[Includes()] AFTER existing + Apply prompt engineering: clarity, brevity, token efficiency)] → END-TASK', 'OUTPUT({brain_php_content: "...", preserved_variation: "...", rules_kept: [...], rules_added: [...], rules_updated: [...]})')</phase>
-<phase name="5">Write enhanced Brain.php</phase>
-<phase name="6">STORE-AS($ENHANCED_BRAIN_PHP)</phase>
-<phase name="7">NOTE(Brain.php enhanced with Brain-specific configuration while preserving Variation)</phase>
+<phase name="1">Enhance handle() method with Brain-specific content only</phase>
+<phase name="2">Task(@agent-prompt-master, 'INPUT(STORE-GET($CURRENT_BRAIN_CONFIG) && STORE-GET($PROJECT_INCLUDES_RECOMMENDATION) && STORE-GET($DISTRIBUTED_GUIDELINES.brain) && STORE-GET($PROJECT_CONTEXT))', 'TASK → [(PRESERVE existing #[Includes()] attributes (Variation) - DO NOT MODIFY + PRESERVE existing class structure and namespace + IF(CURRENT_BRAIN_CONFIG.is_populated) → THEN → [MERGE MODE: File has existing handle() content →   - KEEP all existing rules/guidelines in handle() that are still relevant →   - UPDATE rules if new discovery provides better info (same id, improved text) →   - ADD only NEW Brain-specific rules not already present →   - REMOVE nothing unless explicitly obsolete →   - Compare rule IDs to avoid duplicates] → ELSE → [FRESH MODE: handle() is empty/skeleton - add all Brain-specific rules] → END-IF + Focus on Brain-specific rules only (Common/Master rules already distributed): +   - Orchestration and delegation strategies +   - Agent selection criteria for this project +   - Response synthesis patterns +   - Brain-level validation gates +  + CRITICAL - GENERATE CODE WITH $this->var() IMMEDIATELY: +   WRONG: ->text("Default model is sonnet") +   RIGHT: ->text(["Default model is", $this->var("DEFAULT_MODEL", "sonnet")]) +   WRONG: $depth = 2; +   RIGHT: $depth = $this->var("MAX_DELEGATION_DEPTH", 2); +  +   For EACH configurable value in generated code: +     1. USE $this->var("KEY", default) IN THE CODE IMMEDIATELY +     2. COLLECT to env_vars: {name: "KEY", default: "value", description: "...", variants: "..."} +  +   Candidates: DEFAULT_MODEL, MAX_DELEGATION_DEPTH, VALIDATION_THRESHOLD +   Candidates: ENABLE_PARALLEL_AGENTS, MAX_RETRIES, RESPONSE_MAX_TOKENS +  + If suggested new project includes, add to #[Includes()] AFTER existing + Apply prompt engineering: clarity, brevity, token efficiency)] → END-TASK', 'OUTPUT({brain_php_content: "...", preserved_variation: "...", rules_kept: [...], rules_added: [...], rules_updated: [...], env_vars: [{name, default, description, variants}]})')</phase>
+<phase name="3">Brain receives PromptMaster response with content + env_vars</phase>
+<phase name="4">STORE-AS($ENHANCED_BRAIN_PHP)</phase>
+<phase name="5">TASK → [(Write .brain/node/Brain.php from ENHANCED_BRAIN_PHP.brain_php_content + IF(ENHANCED_BRAIN_PHP.env_vars not empty) → THEN → [APPEND to .brain/.env: →   # ═══ BRAIN ═══ (if not already present) →   For EACH env_var in ENHANCED_BRAIN_PHP.env_vars: →     IF var.name NOT in EXISTING_ENV: →       # {var.description} →       # variants: {var.variants} →       {var.name}={var.default}] → END-IF)] → END-TASK</phase>
+<phase name="6">NOTE(Brain.php written + new env vars appended to .env)</phase>
 </example>
 </guideline>
-<guideline id="phase7-5-env-configuration">
-
-GOAL(Extract configurable settings to .brain/.env for easy tuning)
-NOTE(Centralizes all adjustable parameters in one place Uses $this->var() in PHP code to read ENV values Comments document each setting with variants and combinations Prevents duplication - single source of truth for configurable values)
-
-<example>
-<phase name="1">Read existing .env if present</phase>
-<phase name="2">IF(.brain/.env exists) → THEN → [Read('.brain/.env') → STORE-AS($EXISTING_ENV)] → ELSE → [STORE-AS($EXISTING_ENV = 'null')] → END-IF</phase>
-<phase name="3">Task(@agent-agent-master, 'INPUT(STORE-GET($EXISTING_ENV) && STORE-GET($PROJECT_CONTEXT) && STORE-GET($TECH_STACK) && STORE-GET($ENVIRONMENT_CONTEXT) && STORE-GET($ARCHITECTURE_PATTERNS) && STORE-GET($VECTOR_CRITICAL_INSIGHTS))', 'TASK → [(Analyze ALL discovered project settings and identify CONFIGURABLE values +  + EXTRACT settings that: +   - May need adjustment per environment/project +   - Control behavior that users might want to tweak +   - Represent thresholds, limits, or toggles +   - Are referenced in multiple places (DRY) +  + CATEGORIES to consider: +   - Model settings: DEFAULT_MODEL, FALLBACK_MODEL +   - Limits: MAX_TOKENS, MAX_RETRIES, TIMEOUT_SECONDS +   - Toggles: ENABLE_VECTOR_MEMORY, ENABLE_WEB_RESEARCH +   - Paths: DOCS_DIRECTORY, OUTPUT_DIRECTORY +   - Project-specific: PHP_VERSION, NODE_VERSION, DATABASE_TYPE +   - Quality gates: MIN_COVERAGE, PHPSTAN_LEVEL +   - Agent behavior: AGENT_VERBOSITY, PARALLEL_AGENTS +  + FOR EACH setting generate: +   - UPPER_SNAKE_CASE name +   - Default value (from project discovery) +   - Comment with description (1 line) +   - Comment with variants/options if applicable +  + MERGE with EXISTING_ENV: +   - PRESERVE user-modified values +   - ADD new settings not present +   - UPDATE comments if improved +   - KEEP user comments intact)] → END-TASK', 'OUTPUT({env_content: "...", settings_kept: [...], settings_added: [...], settings_updated: [...]})')</phase>
-<phase name="4">STORE-AS($ENV_CONFIGURATION)</phase>
-<phase name="5">Generate .env file content with structured comments</phase>
-<phase name="6">Task(@agent-prompt-master, 'INPUT(STORE-GET($ENV_CONFIGURATION) && STORE-GET($EXISTING_ENV))', 'TASK → [(Generate well-structured .env file content +  + FORMAT RULES: +   - Group settings by category with section headers +   - Each setting: # description\\n# variants: opt1 | opt2 | opt3\\nKEY=value +   - Empty line between groups +   - No quotes around simple values +   - Quotes for values with spaces +  + SECTION ORDER: +   1. # ═══ BRAIN CORE ═══ +   2. # ═══ MODELS ═══ +   3. # ═══ LIMITS & THRESHOLDS ═══ +   4. # ═══ FEATURES ═══ +   5. # ═══ PROJECT ═══ +   6. # ═══ QUALITY GATES ═══ +   7. # ═══ PATHS ═══ +  + EXAMPLE FORMAT: + # ═══ MODELS ═══ +  + # Default model for Brain orchestration + # variants: sonnet | opus | haiku + DEFAULT_MODEL=sonnet +  + # Fallback model when primary unavailable + # variants: haiku | sonnet + FALLBACK_MODEL=haiku)] → END-TASK', 'OUTPUT({formatted_env: "..."})')</phase>
-<phase name="7">STORE-AS($FORMATTED_ENV)</phase>
-<phase name="8">Backup existing .env and write new</phase>
-<phase name="9">IF(EXISTING_ENV !== null) → THEN → [Bash(cp .brain/.env .brain/.env.backup) → [Backup existing .env] → END-Bash] → END-IF</phase>
-<phase name="10">Write .brain/.env</phase>
-<phase name="11">NOTE(.env generated with configurable settings - use $this->var(\"KEY\") in PHP)</phase>
-</example>
-</guideline>
-<guideline id="phase8-compilation">
+<guideline id="phase7-compilation">
 GOAL(Validate syntax and compile all enhanced files)
 <example>
 <phase name="1">Validate PHP syntax for all modified files</phase>
 <phase name="2">TASK → [(Bash(php -l .brain/node/Common.php) → [Validate Common.php syntax] → END-Bash + Bash(php -l .brain/node/Master.php) → [Validate Master.php syntax] → END-Bash + Bash(php -l .brain/node/Brain.php) → [Validate Brain.php syntax] → END-Bash)] → END-TASK</phase>
-<phase name="3">IF(any syntax validation failed) → THEN → [Restore all backups → Bash('mv .brain/node/Common.php.backup .brain/node/Common.php') → Bash('mv .brain/node/Master.php.backup .brain/node/Master.php') → Bash('mv .brain/node/Brain.php.backup .brain/node/Brain.php') → Report syntax errors → OUTPUT(Syntax validation failed - all backups restored)] → END-IF</phase>
+<phase name="3">IF(any syntax validation failed) → THEN → [Report syntax errors with file:line details → Provide fix suggestions → OUTPUT(Syntax validation failed - review errors above)] → END-IF</phase>
 <phase name="4">Compile Brain ecosystem</phase>
 <phase name="5">Bash(brain compile) → [Compile .brain/node/Brain.php with includes to .claude/CLAUDE.md] → END-Bash</phase>
 <phase name="6">VERIFY-SUCCESS(Compilation succeeded .claude/CLAUDE.md exists No compilation errors Common.php included via BrainIncludesTrait Master.php available for AgentIncludesTrait)</phase>
-<phase name="7">IF(compilation failed) → THEN → [Restore all backups → Bash('mv .brain/node/Common.php.backup .brain/node/Common.php') → Bash('mv .brain/node/Master.php.backup .brain/node/Master.php') → Bash('mv .brain/node/Brain.php.backup .brain/node/Brain.php') → Report compilation errors → OUTPUT(Compilation failed - all backups restored)] → END-IF</phase>
+<phase name="7">IF(compilation failed) → THEN → [Report compilation errors with details → Provide fix suggestions → OUTPUT(Compilation failed - review errors above)] → END-IF</phase>
 </example>
 </guideline>
-<guideline id="phase9-knowledge-storage">
+<guideline id="phase8-knowledge-storage">
 GOAL(Store all insights to vector memory for future reference)
 <example>
 <phase name="1">mcp__vector-memory__store_memory('INPUT(content: "Brain Initialization - Project: {project_type}, Tech Stack: {tech_stack}, Patterns: {architecture_patterns}, Date: {current_date}" && category: "architecture" && tags: ["init-brain", "project-discovery", "configuration"])')</phase>
 <phase name="2">mcp__vector-memory__store_memory('INPUT(content: "Environment Discovery - Docker: {has_docker}, CI/CD: {cicd_platform}, Dev Tools: {dev_tools}, Date: {current_date}" && category: "architecture" && tags: ["init-brain", "environment", "infrastructure"])')</phase>
 <phase name="3">mcp__vector-memory__store_memory('INPUT(content: "Smart Distribution - Common: {common_rules_count} rules, Master: {master_rules_count} rules, Brain: {brain_rules_count} rules, Date: {current_date}" && category: "architecture" && tags: ["init-brain", "distribution", "configuration"])')</phase>
-<phase name="4">mcp__vector-memory__store_memory('INPUT(content: "Best Practices Research - Frameworks: {frameworks}, Recommendations: {best_practices}, Date: {current_date}" && category: "learning" && tags: ["init-brain", "best-practices", "research"])')</phase>
+<phase name="4">mcp__vector-memory__store_memory('INPUT(content: "Vector Memory Mining - Common: {vector_common_count}, Master: {vector_master_count}, Brain: {vector_brain_count}, Total validated: {vector_total_validated}, Date: {current_date}" && category: "learning" && tags: ["init-brain", "vector-mining", "insights"])')</phase>
 </example>
 </guideline>
-<guideline id="phase10-report">
+<guideline id="phase9-report">
 GOAL(Generate comprehensive initialization report with smart distribution summary)
 <example>
-<phase name="1">OUTPUT(Brain Ecosystem Initialization Complete  ═══════════════════════════════════════════════════════ SMART DISTRIBUTION SUMMARY ═══════════════════════════════════════════════════════  .brain/node/Common.php (Brain + ALL Agents):   Mode: {common_mode}   Kept: {common_rules_kept} | Added: {common_rules_added} | Updated: {common_rules_updated}   Backup: .brain/node/Common.php.backup  .brain/node/Master.php (ALL Agents only):   Mode: {master_mode}   Kept: {master_rules_kept} | Added: {master_rules_added} | Updated: {master_rules_updated}   Backup: .brain/node/Master.php.backup  .brain/node/Brain.php (Brain only):   Variation: {existing_variation_name} (PRESERVED)   Mode: {brain_mode}   Kept: {brain_rules_kept} | Added: {brain_rules_added} | Updated: {brain_rules_updated}   Backup: .brain/node/Brain.php.backup  ═══════════════════════════════════════════════════════ DISCOVERY RESULTS ═══════════════════════════════════════════════════════  Project:   Type: {project_type}   Tech Stack: {tech_stack}   Architecture: {architecture_patterns}  Environment:   Docker: {has_docker}   CI/CD Platform: {cicd_platform}   Dev Tools: {dev_tools}   Infrastructure: {infrastructure_services}  Documentation:   Files Analyzed: {docs_file_count}   Domain Concepts: {domain_concepts_count}   Requirements: {requirements_count}  Vector Memory Mining:   Total Mined: {vector_total_mined}   Critical Filtered: {vector_critical_count}   Added to Common: {vector_common_count}   Added to Master: {vector_master_count}   Added to Brain: {vector_brain_count}  ═══════════════════════════════════════════════════════ OUTPUT FILES ═══════════════════════════════════════════════════════  Source Files:   .brain/node/Brain.php   .brain/node/Common.php   .brain/node/Master.php  Compiled Output:   .claude/CLAUDE.md  Configuration:   .brain/.env   Settings: {env_settings_count} ({env_kept} kept, {env_added} added)  Backups:   .brain/node/*.backup   .brain/.env.backup (if existed)  ═══════════════════════════════════════════════════════ VECTOR MEMORY ═══════════════════════════════════════════════════════    Insights Stored: {insights_count}   Categories: architecture, learning   Tags: init-brain, project-discovery, distribution  ═══════════════════════════════════════════════════════ NEXT STEPS ═══════════════════════════════════════════════════════    1. Review enhanced files:      - Common.php: shared environment/coding rules      - Master.php: agent execution patterns      - Brain.php: orchestration rules (Variation preserved)    2. If project includes suggested:      brain make:include {name}    3. Test Brain behavior with sample tasks    4. After any modifications:      brain compile    5. Consider running:      /init-agents for agent generation      /init-vector for vector memory population)</phase>
+<phase name="1">OUTPUT(Brain Ecosystem Initialization Complete  ═══════════════════════════════════════════════════════ SMART DISTRIBUTION SUMMARY ═══════════════════════════════════════════════════════  .brain/node/Common.php (Brain + ALL Agents):   Mode: {common_mode}   Kept: {common_rules_kept} | Added: {common_rules_added} | Updated: {common_rules_updated}   ENV vars: {common_env_count}  .brain/node/Master.php (ALL Agents only):   Mode: {master_mode}   Kept: {master_rules_kept} | Added: {master_rules_added} | Updated: {master_rules_updated}   ENV vars: {master_env_count}  .brain/node/Brain.php (Brain only):   Variation: {existing_variation_name} (PRESERVED)   Mode: {brain_mode}   Kept: {brain_rules_kept} | Added: {brain_rules_added} | Updated: {brain_rules_updated}   ENV vars: {brain_env_count}  ═══════════════════════════════════════════════════════ DISCOVERY RESULTS ═══════════════════════════════════════════════════════  Project:   Type: {project_type}   Tech Stack: {tech_stack}   Architecture: {architecture_patterns}  Environment:   Docker: {has_docker}   CI/CD Platform: {cicd_platform}   Dev Tools: {dev_tools}   Infrastructure: {infrastructure_services}  Documentation:   Files Analyzed: {docs_file_count}   Domain Concepts: {domain_concepts_count}   Requirements: {requirements_count}  Vector Memory Mining:   Total Mined: {vector_total_mined}   Critical Filtered: {vector_critical_count}   Added to Common: {vector_common_count}   Added to Master: {vector_master_count}   Added to Brain: {vector_brain_count}  ═══════════════════════════════════════════════════════ OUTPUT FILES ═══════════════════════════════════════════════════════  Source Files:   .brain/node/Brain.php   .brain/node/Common.php   .brain/node/Master.php  Compiled Output:   .claude/CLAUDE.md  Configuration:   .brain/.env   Variables: {env_settings_count} ({env_kept} kept, {env_added} added)  ═══════════════════════════════════════════════════════ VECTOR MEMORY ═══════════════════════════════════════════════════════    Insights Stored: {insights_count}   Categories: architecture, learning   Tags: init-brain, project-discovery, distribution  ═══════════════════════════════════════════════════════ NEXT STEPS ═══════════════════════════════════════════════════════    1. Review enhanced files:      - Common.php: shared environment/coding rules      - Master.php: agent execution patterns      - Brain.php: orchestration rules (Variation preserved)    2. If project includes suggested:      brain make:include {name}    3. Test Brain behavior with sample tasks    4. After any modifications:      brain compile    5. Consider running:      /init-agents for agent generation      /init-vector for vector memory population)</phase>
 </example>
 </guideline>
 <guideline id="error-recovery">
@@ -239,10 +212,10 @@ GOAL(Generate comprehensive initialization report with smart distribution summar
 <example>
 <phase name="1">IF(no .docs/ found) → THEN → [Continue with codebase analysis only → Log: Documentation not available] → END-IF</phase>
 <phase name="2">IF(tech stack detection fails) → THEN → [Use manual fallback detection → Analyze file extensions and structure] → END-IF</phase>
-<phase name="3">IF(web research fails) → THEN → [Use cached knowledge from vector memory → Continue with available information] → END-IF</phase>
+<phase name="3">IF(vector memory research fails) → THEN → [Continue with codebase-only discovery → Log: Vector memory unavailable] → END-IF</phase>
 <phase name="4">IF(brain list:includes fails) → THEN → [Use hardcoded standard includes list → Log: Include discovery failed] → END-IF</phase>
-<phase name="5">IF(Brain.php generation fails) → THEN → [Preserve backup → Report detailed error → Provide manual configuration guidance] → END-IF</phase>
-<phase name="6">IF(brain compile fails) → THEN → [Restore backup → Analyze compilation errors → Suggest fixes] → END-IF</phase>
+<phase name="5">IF(Brain.php generation fails) → THEN → [Report detailed error with file:line → Provide manual fix guidance] → END-IF</phase>
+<phase name="6">IF(brain compile fails) → THEN → [Analyze compilation errors → Provide fix suggestions] → END-IF</phase>
 <phase name="7">IF(vector memory storage fails) → THEN → [Continue without storage → Log: Memory storage unavailable] → END-IF</phase>
 </example>
 </guideline>
@@ -253,7 +226,7 @@ GOAL(Generate comprehensive initialization report with smart distribution summar
 <example>Gate 3: Environment discovery completed (Docker, CI/CD, Dev Tools)</example>
 <example>Gate 4: At least one discovery task succeeded (docs OR codebase)</example>
 <example>Gate 5: Smart distribution categorization completed (Common/Master/Brain)</example>
-<example>Gate 6: All backups created (Common.php.backup, Master.php.backup, Brain.php.backup)</example>
+<example>Gate 6: All enhanced files written successfully</example>
 <example>Gate 7: All enhanced files pass PHP syntax validation</example>
 <example>Gate 8: Compilation completes without errors</example>
 <example>Gate 9: Compiled output exists at .claude/CLAUDE.md</example>
@@ -265,7 +238,7 @@ SCENARIO(Laravel project with Docker, Sail, and comprehensive documentation)
 <phase name="1">Discovery: Laravel 11, PHP 8.3, MySQL, Redis, Queue, Sanctum</phase>
 <phase name="2">Environment: Docker (Sail), GitHub Actions CI/CD, PHPStan L8</phase>
 <phase name="3">Docs: 15 .md files with architecture, requirements, domain logic</phase>
-<phase name="4">Research: Laravel 2025 best practices, service container patterns</phase>
+<phase name="4">Vector Mining: 12 insights found, 8 validated for distribution</phase>
 <phase name="5">
 </phase>
 <phase name="6">SMART DISTRIBUTION:</phase>
@@ -284,7 +257,7 @@ SCENARIO(Node.js/Express project with Docker and TypeScript)
 <phase name="1">Discovery: Node.js 20, Express, TypeScript, MongoDB</phase>
 <phase name="2">Environment: Docker Compose, GitLab CI, ESLint + Prettier</phase>
 <phase name="3">Docs: None found - codebase analysis only</phase>
-<phase name="4">Research: Express 2025 patterns, TypeScript best practices</phase>
+<phase name="4">Vector Mining: 7 insights found, 5 validated for distribution</phase>
 <phase name="5">
 </phase>
 <phase name="6">SMART DISTRIBUTION:</phase>
@@ -303,7 +276,7 @@ SCENARIO(Hybrid PHP/JavaScript microservices with Kubernetes)
 <phase name="1">Discovery: Laravel API + React SPA + Docker + Kafka</phase>
 <phase name="2">Environment: Kubernetes, GitHub Actions, PHPStan + ESLint</phase>
 <phase name="3">Docs: ADRs, API specs, deployment docs, domain model</phase>
-<phase name="4">Research: Microservices patterns, event-driven architecture</phase>
+<phase name="4">Vector Mining: 18 insights found, 12 validated for distribution</phase>
 <phase name="5">
 </phase>
 <phase name="6">SMART DISTRIBUTION:</phase>

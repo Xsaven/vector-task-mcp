@@ -366,7 +366,7 @@ def validate_task_stats_params(
         start_before: Filter tasks started before this ISO 8601 date/datetime
         finish_after: Filter tasks finished after this ISO 8601 date/datetime
         finish_before: Filter tasks finished before this ISO 8601 date/datetime
-        status: Optional status filter (pending, in_progress, completed, stopped)
+        status: Optional status filter (pending, in_progress, completed, tested, validated, stopped)
         priority: Optional priority filter (low, medium, high, critical)
         tags: Optional list of tags to filter by
         parent_id: Optional parent task ID filter
@@ -392,9 +392,9 @@ def validate_task_stats_params(
     validated_status = None
     if status is not None:
         if not isinstance(status, str):
-            raise SecurityError("status must be one of: pending, in_progress, completed, stopped")
+            raise SecurityError(f"status must be one of: {', '.join(TaskStatus.list_values())}")
         if not TaskStatus.is_valid(status):
-            raise SecurityError("status must be one of: pending, in_progress, completed, stopped")
+            raise SecurityError(f"status must be one of: {', '.join(TaskStatus.list_values())}")
         validated_status = status
 
     # Validate priority (optional)
@@ -550,9 +550,9 @@ def validate_task_update_params(task_id: int, **kwargs) -> tuple:
     if 'status' in kwargs:
         status_value = kwargs['status']
         if not isinstance(status_value, str):
-            raise SecurityError("status must be one of: pending, in_progress, completed, stopped")
+            raise SecurityError(f"status must be one of: {', '.join(TaskStatus.list_values())}")
         if not TaskStatus.is_valid(status_value):
-            raise SecurityError("status must be one of: pending, in_progress, completed, stopped")
+            raise SecurityError(f"status must be one of: {', '.join(TaskStatus.list_values())}")
         validated_kwargs['status'] = status_value
 
     # Validate parent_id if provided
@@ -677,9 +677,9 @@ def validate_task_list_params(limit: int, offset: int, status: str = None, paren
     validated_status = None
     if status is not None:
         if not isinstance(status, str):
-            raise SecurityError("status must be one of: pending, in_progress, completed, stopped")
+            raise SecurityError(f"status must be one of: {', '.join(TaskStatus.list_values())}")
         if not TaskStatus.is_valid(status):
-            raise SecurityError("status must be one of: pending, in_progress, completed, stopped")
+            raise SecurityError(f"status must be one of: {', '.join(TaskStatus.list_values())}")
         validated_status = status
 
     # Validate parent_id (optional)

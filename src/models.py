@@ -12,11 +12,125 @@ from typing import List, Optional, Dict, Any
 import json
 
 
+def decimal_hours_to_hhmm(hours: float) -> float:
+    """
+    Convert decimal hours to HH.MM format.
+    Example: 1.872 hours → 1.52 (1 hour 52 minutes)
+
+    Args:
+        hours: Time in decimal hours (e.g., 1.5 = 1 hour 30 minutes)
+
+    Returns:
+        Time in HH.MM format as float (e.g., 1.30 = 1 hour 30 minutes)
+    """
+    if hours <= 0:
+        return 0.0
+    h = int(hours)
+    m = round((hours - h) * 60)
+    if m >= 60:
+        h += 1
+        m -= 60
+    return float(f"{h}.{m:02d}")
+
+
+def hhmm_to_minutes(hhmm: float) -> int:
+    """
+    Convert HH.MM format to total minutes.
+    Example: 1.52 → 112 minutes
+
+    Args:
+        hhmm: Time in HH.MM format (e.g., 1.30 = 1 hour 30 minutes)
+
+    Returns:
+        Total minutes as integer
+    """
+    if hhmm <= 0:
+        return 0
+    h = int(hhmm)
+    m = round((hhmm - h) * 100)
+    return h * 60 + m
+
+
+def minutes_to_hhmm(mins: int) -> float:
+    """
+    Convert total minutes to HH.MM format.
+    Example: 112 minutes → 1.52
+
+    Args:
+        mins: Total minutes
+
+    Returns:
+        Time in HH.MM format as float
+    """
+    if mins <= 0:
+        return 0.0
+    h = mins // 60
+    m = mins % 60
+    return float(f"{h}.{m:02d}")
+
+
+def hhmm_add(a: float, b: float) -> float:
+    """
+    Add two HH.MM format times correctly.
+    Example: 1.30 + 0.45 = 2.15 (not 1.75!)
+
+    Args:
+        a: First time in HH.MM format
+        b: Second time in HH.MM format
+
+    Returns:
+        Sum in HH.MM format
+    """
+    total_mins = hhmm_to_minutes(a) + hhmm_to_minutes(b)
+    return minutes_to_hhmm(total_mins)
+
+
+def is_decimal_hours_format(value: float) -> bool:
+    """
+    Detect if a time value is in decimal hours format (old) vs HH.MM format (new).
+
+    Detection logic:
+    - HH.MM format: 1.30 means 1h 30m, fractional part is .00-.59
+    - Decimal hours: 1.5 means 1h 30m, fractional part can be anything
+
+    Examples:
+        0.04054684... → True (decimal hours, ~2.4 minutes)
+        1.872690768... → True (decimal hours, ~52 minutes)
+        1.30 → False (HH.MM format, 1h 30m)
+        0.45 → False (HH.MM format, 0h 45m)
+
+    Args:
+        value: Time value to check
+
+    Returns:
+        True if value is in decimal hours format (needs conversion)
+        False if value is in HH.MM format (no conversion needed)
+    """
+    if value <= 0:
+        return False
+
+    fractional = value - int(value)
+    minutes_candidate = round(fractional * 100)
+
+    # If minutes > 59, definitely decimal format (impossible in HH.MM)
+    if minutes_candidate > 59:
+        return True
+
+    # Check if value fits HH.MM pattern by reconstruction
+    reconstructed = int(value) + minutes_candidate / 100
+    difference = abs(value - reconstructed)
+
+    # If significant difference from HH.MM interpretation, it's decimal format
+    return difference > 0.0001
+
+
 class TaskStatus(Enum):
     """Task status values for task management"""
     PENDING = "pending"
     IN_PROGRESS = "in_progress"
     COMPLETED = "completed"
+    TESTED = "tested"
+    VALIDATED = "validated"
     STOPPED = "stopped"
 
     @classmethod
@@ -28,6 +142,16 @@ class TaskStatus(Enum):
     def is_valid(cls, value: str) -> bool:
         """Check if a value is a valid status"""
         return value in cls.list_values()
+
+    @classmethod
+    def finish_statuses(cls) -> tuple:
+        """Get tuple of finish statuses (completed, tested, validated)"""
+        return (cls.COMPLETED.value, cls.TESTED.value, cls.VALIDATED.value)
+
+    @classmethod
+    def is_finish_status(cls, value: str) -> bool:
+        """Check if a value is a finish status"""
+        return value in cls.finish_statuses()
 
 
 class Priority(Enum):
@@ -124,6 +248,8 @@ class TaskStats:
     pending_count: int = 0
     in_progress_count: int = 0
     completed_count: int = 0
+    tested_count: int = 0
+    validated_count: int = 0
     stopped_count: int = 0
     with_subtasks: int = 0
     by_priority: Dict[str, int] = None
@@ -154,6 +280,8 @@ class TaskStats:
             "pending_count": self.pending_count,
             "in_progress_count": self.in_progress_count,
             "completed_count": self.completed_count,
+            "tested_count": self.tested_count,
+            "validated_count": self.validated_count,
             "stopped_count": self.stopped_count,
             "with_subtasks": self.with_subtasks,
             "by_priority": self.by_priority,

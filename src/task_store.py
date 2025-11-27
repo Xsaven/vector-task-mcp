@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import List, Optional, Dict, Any, Tuple
 from zoneinfo import ZoneInfo
 
-from .models import Task, TaskStatus, TaskStats, Config, Priority
+from .models import Task, TaskStatus, TaskStats, Config, Priority, decimal_hours_to_hhmm, hhmm_to_minutes, minutes_to_hhmm, hhmm_add, is_decimal_hours_format
 from .security import (
     SecurityError, sanitize_input, validate_task_status,
     validate_task_params, validate_task_update_params,
@@ -149,7 +149,7 @@ class TaskStore:
         Args:
             conn: Active database connection (must be within transaction)
             task_id: Current task ID
-            time_delta: Time to propagate in hours
+            time_delta: Time to propagate in HH.MM format
         """
         if time_delta <= 0:
             return
@@ -161,10 +161,26 @@ class TaskStore:
             return
 
         parent_id = row[0]
+
+        # Fetch current parent time_spent
+        cursor = conn.execute(
+            'SELECT time_spent FROM tasks WHERE id = ?',
+            (parent_id,)
+        )
+        parent_row = cursor.fetchone()
+        current_parent_time = parent_row[0] if parent_row and parent_row[0] else 0.0
+
+        # Auto-convert old decimal hours format to HH.MM if needed
+        if current_parent_time > 0 and is_decimal_hours_format(current_parent_time):
+            current_parent_time = decimal_hours_to_hhmm(current_parent_time)
+
+        # Calculate new time_spent using HH.MM arithmetic
+        new_parent_time = hhmm_add(current_parent_time, time_delta)
+
         # Update parent's time_spent
         conn.execute(
-            'UPDATE tasks SET time_spent = time_spent + ? WHERE id = ?',
-            (time_delta, parent_id)
+            'UPDATE tasks SET time_spent = ? WHERE id = ?',
+            (new_parent_time, parent_id)
         )
         # Recursively propagate to grandparent
         self._propagate_time_to_parents(conn, parent_id, time_delta)
@@ -191,20 +207,23 @@ class TaskStore:
 
         parent_id = row[0]
 
-        if new_status == 'completed':
-            # Check if ALL siblings are completed
-            cursor = conn.execute('''
-                SELECT COUNT(*) FROM tasks
-                WHERE parent_id = ? AND status != 'completed'
-            ''', (parent_id,))
-            non_completed = cursor.fetchone()[0]
+        finish_statuses = TaskStatus.finish_statuses()
 
-            if non_completed == 0:
-                # All children completed → parent completed
-                conn.execute('UPDATE tasks SET status = ? WHERE id = ?', ('completed', parent_id))
-                self._propagate_status_to_parents(conn, parent_id, 'completed')
+        if new_status in finish_statuses:
+            # Check if ALL siblings are finished (completed/tested/validated)
+            placeholders = ','.join('?' * len(finish_statuses))
+            cursor = conn.execute(f'''
+                SELECT COUNT(*) FROM tasks
+                WHERE parent_id = ? AND status NOT IN ({placeholders})
+            ''', (parent_id, *finish_statuses))
+            non_finished = cursor.fetchone()[0]
+
+            if non_finished == 0:
+                # All children finished → parent gets same finish status
+                conn.execute('UPDATE tasks SET status = ? WHERE id = ?', (new_status, parent_id))
+                self._propagate_status_to_parents(conn, parent_id, new_status)
             else:
-                # Not all completed → parent should be pending (waiting for others)
+                # Not all finished → parent should be pending (waiting for others)
                 conn.execute('UPDATE tasks SET status = ? WHERE id = ?', ('pending', parent_id))
                 # Don't propagate pending up - parent was already in correct state
 
@@ -252,20 +271,23 @@ class TaskStore:
         parent_id = row[0]
         now = datetime.utcnow().isoformat()
 
+        finish_statuses = TaskStatus.finish_statuses()
+
         if new_status == 'in_progress':
             # Set parent start_at ONLY if:
             # 1. Parent has no start_at yet
-            # 2. No siblings are completed (this is the first activity in hierarchy)
-            cursor = conn.execute('''
+            # 2. No siblings are finished (this is the first activity in hierarchy)
+            placeholders = ','.join('?' * len(finish_statuses))
+            cursor = conn.execute(f'''
                 SELECT
                     (SELECT start_at FROM tasks WHERE id = ?) as parent_start_at,
-                    (SELECT COUNT(*) FROM tasks WHERE parent_id = ? AND status = 'completed') as completed_siblings
-            ''', (parent_id, parent_id))
+                    (SELECT COUNT(*) FROM tasks WHERE parent_id = ? AND status IN ({placeholders})) as finished_siblings
+            ''', (parent_id, parent_id, *finish_statuses))
             result = cursor.fetchone()
             parent_start_at = result[0]
-            completed_siblings = result[1]
+            finished_siblings = result[1]
 
-            if parent_start_at is None and completed_siblings == 0:
+            if parent_start_at is None and finished_siblings == 0:
                 conn.execute(
                     'UPDATE tasks SET start_at = ? WHERE id = ?',
                     (now, parent_id)
@@ -273,15 +295,16 @@ class TaskStore:
                 # Recursively propagate start_at up
                 self._update_parent_timestamps(conn, parent_id, new_status)
 
-        elif new_status == 'completed':
-            # Set parent finish_at ONLY if ALL siblings are completed
-            cursor = conn.execute('''
+        elif new_status in finish_statuses:
+            # Set parent finish_at ONLY if ALL siblings are finished (completed/tested/validated)
+            placeholders = ','.join('?' * len(finish_statuses))
+            cursor = conn.execute(f'''
                 SELECT COUNT(*) FROM tasks
-                WHERE parent_id = ? AND status != 'completed'
-            ''', (parent_id,))
-            non_completed = cursor.fetchone()[0]
+                WHERE parent_id = ? AND status NOT IN ({placeholders})
+            ''', (parent_id, *finish_statuses))
+            non_finished = cursor.fetchone()[0]
 
-            if non_completed == 0:
+            if non_finished == 0:
                 conn.execute(
                     'UPDATE tasks SET finish_at = ? WHERE id = ?',
                     (now, parent_id)
@@ -603,12 +626,28 @@ class TaskStore:
                 new_status = validated_kwargs['status']
                 status_changed = True
 
+                finish_statuses = TaskStatus.finish_statuses()
+
+                # Auto-convert old decimal hours format to HH.MM on any update
+                cursor = conn.execute(
+                    'SELECT time_spent FROM tasks WHERE id = ?',
+                    (task_id,)
+                )
+                ts_row = cursor.fetchone()
+                if ts_row and ts_row[0] is not None and ts_row[0] > 0:
+                    old_time_spent = ts_row[0]
+                    if is_decimal_hours_format(old_time_spent):
+                        converted_time_spent = decimal_hours_to_hhmm(old_time_spent)
+                        update_fields.append('"time_spent" = ?')
+                        update_values.append(converted_time_spent)
+
                 # Block in_progress if task has incomplete children
                 if new_status == 'in_progress':
-                    cursor = conn.execute('''
+                    placeholders = ','.join('?' * len(finish_statuses))
+                    cursor = conn.execute(f'''
                         SELECT COUNT(*) FROM tasks
-                        WHERE parent_id = ? AND status != 'completed'
-                    ''', (task_id,))
+                        WHERE parent_id = ? AND status NOT IN ({placeholders})
+                    ''', (task_id, *finish_statuses))
                     incomplete_count = cursor.fetchone()[0]
                     if incomplete_count > 0:
                         raise RuntimeError(
@@ -621,17 +660,18 @@ class TaskStore:
                     if 'start_at' not in validated_kwargs:
                         validated_kwargs['start_at'] = datetime.now(ZoneInfo(self.timezone)).isoformat()
 
-                if new_status == 'completed' and current_status != 'completed':
-                    # Completing task - set finish_at timestamp (only if not explicitly provided)
+                if new_status in finish_statuses and current_status not in finish_statuses:
+                    # Finishing task (completed/tested/validated) - set finish_at timestamp (only if not explicitly provided)
                     if 'finish_at' not in validated_kwargs:
                         validated_kwargs['finish_at'] = datetime.now(ZoneInfo(self.timezone)).isoformat()
-                elif new_status != 'completed' and current_status == 'completed':
-                    # Un-completing task - clear finish_at (only if not explicitly provided)
+                elif new_status not in finish_statuses and current_status in finish_statuses:
+                    # Un-finishing task - clear finish_at (only if not explicitly provided)
                     if 'finish_at' not in validated_kwargs:
                         validated_kwargs['finish_at'] = None
 
-                # Calculate time_spent when changing to stopped or completed
-                if new_status in ('stopped', 'completed') and current_status not in ('stopped', 'completed'):
+                # Calculate time_spent when changing to stopped or any finish status
+                finish_and_stopped = finish_statuses + ('stopped',)
+                if new_status in finish_and_stopped and current_status not in finish_and_stopped:
                     # Fetch current task's start_at and existing time_spent
                     cursor = conn.execute(
                         'SELECT start_at, time_spent FROM tasks WHERE id = ?',
@@ -643,18 +683,25 @@ class TaskStore:
                         start_at_str = row[0]
                         current_time_spent = row[1] if row[1] is not None else 0.0
 
+                        # Auto-convert old decimal hours format to HH.MM if needed
+                        if current_time_spent > 0 and is_decimal_hours_format(current_time_spent):
+                            current_time_spent = decimal_hours_to_hhmm(current_time_spent)
+
                         # Calculate time delta if start_at exists
                         if start_at_str:
                             start_at = datetime.fromisoformat(start_at_str)
                             now = datetime.now(ZoneInfo(self.timezone))
-                            time_delta = (now - start_at).total_seconds() / 3600
+                            time_delta_hours = (now - start_at).total_seconds() / 3600
 
                             # Protect against negative time (e.g., if start_at was in future)
-                            if time_delta < 0:
-                                time_delta = 0.0
+                            if time_delta_hours < 0:
+                                time_delta_hours = 0.0
 
-                        # Calculate new cumulative time_spent
-                        new_time_spent = current_time_spent + time_delta
+                            # Convert time_delta to HH.MM format
+                            time_delta = decimal_hours_to_hhmm(time_delta_hours)
+
+                        # Calculate new cumulative time_spent using HH.MM arithmetic
+                        new_time_spent = hhmm_add(current_time_spent, time_delta)
 
                         # Add to update fields
                         update_fields.append('"time_spent" = ?')
@@ -1038,24 +1085,26 @@ class TaskStore:
             if in_progress:
                 return Task.from_db_row(in_progress)
 
-            # Find last completed child task
-            last_completed = conn.execute("""
+            # Find last finished child task (completed/tested/validated)
+            finish_statuses = TaskStatus.finish_statuses()
+            placeholders = ','.join('?' * len(finish_statuses))
+            last_finished = conn.execute(f"""
                 SELECT created_at
                 FROM tasks
-                WHERE status = ? AND parent_id = ?
+                WHERE status IN ({placeholders}) AND parent_id = ?
                 ORDER BY created_at DESC
                 LIMIT 1
-            """, (TaskStatus.COMPLETED.value, parent_id)).fetchone()
+            """, (*finish_statuses, parent_id)).fetchone()
 
-            if last_completed:
-                # Get first pending child task created after last completed
+            if last_finished:
+                # Get first pending child task created after last finished
                 next_pending = conn.execute("""
                     SELECT id, parent_id, status, priority, title, content, comment, tags, created_at, start_at, finish_at, content_hash, estimate, "order", time_spent
                     FROM tasks
                     WHERE status = ? AND parent_id = ? AND created_at > ?
                     ORDER BY "order" ASC NULLS LAST, CASE priority WHEN 'critical' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 WHEN 'low' THEN 4 END, created_at ASC
                     LIMIT 1
-                """, (TaskStatus.PENDING.value, parent_id, last_completed[0])).fetchone()
+                """, (TaskStatus.PENDING.value, parent_id, last_finished[0])).fetchone()
 
                 if next_pending:
                     return Task.from_db_row(next_pending)
@@ -1138,24 +1187,26 @@ class TaskStore:
             if in_progress:
                 return Task.from_db_row(in_progress)
 
-            # Find last completed task
-            last_completed = conn.execute("""
+            # Find last finished task (completed/tested/validated)
+            finish_statuses = TaskStatus.finish_statuses()
+            placeholders = ','.join('?' * len(finish_statuses))
+            last_finished = conn.execute(f"""
                 SELECT created_at
                 FROM tasks
-                WHERE status = ?
+                WHERE status IN ({placeholders})
                 ORDER BY created_at DESC
                 LIMIT 1
-            """, (TaskStatus.COMPLETED.value,)).fetchone()
+            """, finish_statuses).fetchone()
 
-            if last_completed:
-                # Get first pending task created after last completed
+            if last_finished:
+                # Get first pending task created after last finished
                 next_pending = conn.execute("""
                     SELECT id, parent_id, status, priority, title, content, comment, tags, created_at, start_at, finish_at, content_hash, estimate, "order", time_spent
                     FROM tasks
                     WHERE status = ? AND created_at > ?
                     ORDER BY "order" ASC NULLS LAST, CASE priority WHEN 'critical' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 WHEN 'low' THEN 4 END, created_at ASC
                     LIMIT 1
-                """, (TaskStatus.PENDING.value, last_completed[0])).fetchone()
+                """, (TaskStatus.PENDING.value, last_finished[0])).fetchone()
 
                 if next_pending:
                     return Task.from_db_row(next_pending)
@@ -1444,7 +1495,7 @@ class TaskStore:
             start_before: Filter tasks started before this timestamp (ISO 8601)
             finish_after: Filter tasks finished after this timestamp (ISO 8601)
             finish_before: Filter tasks finished before this timestamp (ISO 8601)
-            status: Filter by status (pending, in_progress, completed, stopped)
+            status: Filter by status (pending, in_progress, completed, tested, validated, stopped)
             priority: Filter by priority (low, medium, high, critical)
             tags: Filter by tags (OR logic - matches ANY tag in list)
             parent_id: Filter by parent_id (None for root tasks)
@@ -1587,33 +1638,49 @@ class TaskStore:
             total_estimate = estimate_row[0] or 0.0
             avg_estimate = estimate_row[1] or 0.0
 
-            # Time spent metrics
-            time_spent_row = conn.execute(
+            # Time spent metrics - fetch all time_spent values for proper HH.MM aggregation
+            time_spent_rows = conn.execute(
                 f"""
-                SELECT
-                    SUM(time_spent),
-                    AVG(time_spent)
+                SELECT time_spent
                 FROM tasks
                 WHERE time_spent > 0 AND {where_sql}
                     AND id NOT IN (SELECT DISTINCT parent_id FROM tasks WHERE parent_id IS NOT NULL)
                 """,
                 params
-            ).fetchone()
-            total_time_spent = time_spent_row[0] or 0.0
-            avg_time_spent = time_spent_row[1] or 0.0
+            ).fetchall()
 
-            # Overdue count (time_spent > estimate)
-            overdue_count = conn.execute(
+            # Convert HH.MM to minutes, sum, then convert back
+            if time_spent_rows:
+                time_minutes = [hhmm_to_minutes(row[0]) for row in time_spent_rows if row[0]]
+                total_minutes = sum(time_minutes)
+                avg_minutes = total_minutes / len(time_minutes) if time_minutes else 0
+                total_time_spent = minutes_to_hhmm(total_minutes)
+                avg_time_spent = minutes_to_hhmm(int(avg_minutes))
+            else:
+                total_time_spent = 0.0
+                avg_time_spent = 0.0
+
+            # Overdue count - fetch tasks for overdue calculation (compare in minutes for HH.MM format)
+            overdue_rows = conn.execute(
                 f"""
-                SELECT COUNT(*)
+                SELECT time_spent, estimate
                 FROM tasks
-                WHERE time_spent > estimate
+                WHERE time_spent > 0
                     AND estimate IS NOT NULL
+                    AND estimate > 0
                     AND {where_sql}
                     AND id NOT IN (SELECT DISTINCT parent_id FROM tasks WHERE parent_id IS NOT NULL)
                 """,
                 params
-            ).fetchone()[0]
+            ).fetchall()
+
+            # Count overdue: time_spent (HH.MM) > estimate (hours) - convert both to minutes
+            overdue_count = 0
+            for time_spent_val, estimate_val in overdue_rows:
+                time_minutes = hhmm_to_minutes(time_spent_val)
+                estimate_minutes = int(estimate_val * 60)  # estimate is in decimal hours
+                if time_minutes > estimate_minutes:
+                    overdue_count += 1
 
             # Estimate accuracy calculation
             accuracy_rows = conn.execute(
@@ -1632,8 +1699,11 @@ class TaskStore:
             if accuracy_rows:
                 deviations = []
                 for estimate, time_spent in accuracy_rows:
-                    deviation_pct = abs(time_spent - estimate) / estimate * 100
-                    deviations.append(deviation_pct)
+                    time_minutes = hhmm_to_minutes(time_spent)
+                    estimate_minutes = int(estimate * 60)  # estimate is in decimal hours
+                    if estimate_minutes > 0:
+                        deviation_pct = abs(time_minutes - estimate_minutes) / estimate_minutes * 100
+                        deviations.append(deviation_pct)
                 avg_deviation = sum(deviations) / len(deviations)
                 estimate_accuracy = 100 - avg_deviation
 
@@ -1665,6 +1735,8 @@ class TaskStore:
                 pending_count=status_counts.get(TaskStatus.PENDING.value, 0),
                 in_progress_count=status_counts.get(TaskStatus.IN_PROGRESS.value, 0),
                 completed_count=status_counts.get(TaskStatus.COMPLETED.value, 0),
+                tested_count=status_counts.get(TaskStatus.TESTED.value, 0),
+                validated_count=status_counts.get(TaskStatus.VALIDATED.value, 0),
                 stopped_count=status_counts.get(TaskStatus.STOPPED.value, 0),
                 with_subtasks=with_subtasks,
                 by_priority=priority_counts,
