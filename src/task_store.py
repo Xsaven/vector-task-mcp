@@ -171,12 +171,17 @@ class TaskStore:
 
     def _propagate_status_to_parents(self, conn: sqlite3.Connection, task_id: int, new_status: str) -> None:
         """
-        Recursively propagate status change to all parent tasks.
+        Recursively propagate status to parent tasks based on aggregate child state.
+
+        Rules:
+        - completed: Parent completed ONLY when ALL children completed
+        - in_progress: Parent in_progress if ANY child in_progress
+        - pending/stopped: Parent pending if no children in_progress
 
         Args:
             conn: Active database connection (must be within transaction)
             task_id: Current task ID
-            new_status: Status to propagate to parents
+            new_status: Status that triggered this propagation
         """
         # Get parent_id of current task
         cursor = conn.execute('SELECT parent_id FROM tasks WHERE id = ?', (task_id,))
@@ -186,14 +191,43 @@ class TaskStore:
 
         parent_id = row[0]
 
-        # Update parent's status
-        conn.execute(
-            'UPDATE tasks SET status = ? WHERE id = ?',
-            (new_status, parent_id)
-        )
+        if new_status == 'completed':
+            # Check if ALL siblings are completed
+            cursor = conn.execute('''
+                SELECT COUNT(*) FROM tasks
+                WHERE parent_id = ? AND status != 'completed'
+            ''', (parent_id,))
+            non_completed = cursor.fetchone()[0]
 
-        # Recursively propagate to grandparent
-        self._propagate_status_to_parents(conn, parent_id, new_status)
+            if non_completed == 0:
+                # All children completed → parent completed
+                conn.execute('UPDATE tasks SET status = ? WHERE id = ?', ('completed', parent_id))
+                self._propagate_status_to_parents(conn, parent_id, 'completed')
+            else:
+                # Not all completed → parent should be pending (waiting for others)
+                conn.execute('UPDATE tasks SET status = ? WHERE id = ?', ('pending', parent_id))
+                # Don't propagate pending up - parent was already in correct state
+
+        elif new_status == 'in_progress':
+            # Any child working → parent in_progress
+            conn.execute('UPDATE tasks SET status = ? WHERE id = ?', ('in_progress', parent_id))
+            self._propagate_status_to_parents(conn, parent_id, 'in_progress')
+
+        else:  # pending or stopped
+            # Check if any sibling is in_progress
+            cursor = conn.execute('''
+                SELECT COUNT(*) FROM tasks
+                WHERE parent_id = ? AND status = 'in_progress'
+            ''', (parent_id,))
+            in_progress_count = cursor.fetchone()[0]
+
+            if in_progress_count > 0:
+                # Someone still working → parent stays in_progress
+                conn.execute('UPDATE tasks SET status = ? WHERE id = ?', ('in_progress', parent_id))
+            else:
+                # No one working → parent pending
+                conn.execute('UPDATE tasks SET status = ? WHERE id = ?', ('pending', parent_id))
+            # Don't propagate these states up
 
     def _update_parent_timestamps(self, conn: sqlite3.Connection, task_id: int, new_status: str) -> None:
         """
@@ -568,6 +602,19 @@ class TaskStore:
                 current_status = existing[3]  # status is 4th column (index 3)
                 new_status = validated_kwargs['status']
                 status_changed = True
+
+                # Block in_progress if task has incomplete children
+                if new_status == 'in_progress':
+                    cursor = conn.execute('''
+                        SELECT COUNT(*) FROM tasks
+                        WHERE parent_id = ? AND status != 'completed'
+                    ''', (task_id,))
+                    incomplete_count = cursor.fetchone()[0]
+                    if incomplete_count > 0:
+                        raise RuntimeError(
+                            f"Cannot set task to in_progress: task has {incomplete_count} "
+                            f"incomplete child task(s). Complete all children first."
+                        )
 
                 # Auto-set start_at when changing to in_progress (only if not explicitly provided)
                 if new_status == 'in_progress' and current_status != 'in_progress':

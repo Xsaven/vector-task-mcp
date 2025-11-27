@@ -90,12 +90,14 @@ GOAL(Explore codebase, identify targets, create execution plan)
 <phase name="9">WAIT for user approval</phase>
 <phase name="10">VERIFY-SUCCESS(User approved)</phase>
 <phase name="11">IF(rejected) → THEN → [Modify plan → Re-present → WAIT] → END-IF</phase>
+<phase name="12">IMMEDIATELY after approval - set task in_progress (exploration/gathering IS execution)</phase>
+<phase name="13">IF($IS_VECTOR_TASK === true) → THEN → [mcp__vector-task__task_update('{task_id: $VECTOR_TASK_ID, status: "in_progress", comment: "Execution started after plan approval", append_comment: true}') → OUTPUT(📋 Vector task #{$VECTOR_TASK_ID} started)] → END-IF</phase>
 </example>
 </guideline>
 <guideline id="phase3-direct-execution">
 GOAL(Execute plan directly using Brain tools - no delegation)
 <example>
-<phase name="1">IF($IS_VECTOR_TASK === true) → THEN → [mcp__vector-task__task_update('{task_id: $VECTOR_TASK_ID, status: "in_progress"}') → OUTPUT(📋 Vector task #{$VECTOR_TASK_ID} started)] → END-IF</phase>
+<phase name="1">NOTE: Task already in_progress since Phase 2 approval</phase>
 <phase name="2">FOREACH(step in $PLAN) → [OUTPUT(▶️ Step {N}: {step.description}) → IF(step.action === "read") → THEN → [Read('{step.file}') → STORE-AS($FILE_CONTENT[{N}] = 'File content')] → END-IF → IF(step.action === "edit") → THEN → [Read('{step.file}') → Edit('{step.file}', '{old_string}', '{new_string}')] → END-IF → IF(step.action === "write") → THEN → [Write('{step.file}', '{content}')] → END-IF → STORE-AS($STEP_RESULTS[{N}] = 'Result') → OUTPUT(✅ Step {N} complete)] → END-FOREACH</phase>
 <phase name="3">IF(step fails) → THEN → [Log error → Offer: Retry / Skip / Abort → WAIT for user decision] → END-IF</phase>
 </example>

@@ -114,7 +114,7 @@ GOAL(Discover agents leveraging conversation context + vector memory)
 </example>
 </guideline>
 <guideline id="phase2-requirements-analysis-approval">
-GOAL(Create requirements plan leveraging conversation + memory + GET USER APPROVAL)
+GOAL(Create requirements plan leveraging conversation + memory + GET USER APPROVAL + START TASK)
 <example>
 <phase name="1">mcp__vector-memory__search_memories('{query: "patterns: {task_domain}", limit: 5, category: "learning,architecture"}')</phase>
 <phase name="2">STORE-AS($IMPLEMENTATION_PATTERNS = 'Past patterns')</phase>
@@ -125,6 +125,8 @@ GOAL(Create requirements plan leveraging conversation + memory + GET USER APPROV
 <phase name="7">WAIT for user approval</phase>
 <phase name="8">VERIFY-SUCCESS(User approved)</phase>
 <phase name="9">IF(rejected) → THEN → [Modify plan → Re-present → WAIT] → END-IF</phase>
+<phase name="10">IMMEDIATELY after approval - set task in_progress (research IS execution)</phase>
+<phase name="11">IF($IS_VECTOR_TASK === true) → THEN → [mcp__vector-task__task_update('{task_id: $VECTOR_TASK_ID, status: "in_progress", comment: "Research phase started after requirements approval", append_comment: true}') → OUTPUT(📋 Vector task #{$VECTOR_TASK_ID} started (research phase))] → END-IF</phase>
 </example>
 </guideline>
 <guideline id="phase3-material-gathering">
@@ -160,7 +162,7 @@ GOAL(Create atomic plan leveraging past execution patterns, analyze dependencies
 <guideline id="phase5-flexible-execution">
 GOAL(Execute plan with optimal mode (sequential OR parallel))
 <example>
-<phase name="1">IF($IS_VECTOR_TASK === true) → THEN → [mcp__vector-task__task_update('{task_id: $VECTOR_TASK_ID, status: "in_progress"}') → OUTPUT(📋 Vector task #{$VECTOR_TASK_ID} started)] → END-IF</phase>
+<phase name="1">NOTE: Task already in_progress since Phase 2 approval (research is execution)</phase>
 <phase name="2">Initialize: current_step = 1</phase>
 <phase name="3">IF($EXECUTION_PLAN.execution_mode === "sequential") → THEN → [SEQUENTIAL MODE: Execute steps one-by-one → FOREACH(step in $EXECUTION_PLAN.steps) → [OUTPUT(▶️ Step {N}/{total}: @agent-{step.agent_name} | 📁 {step.file_scope}) → Delegate via Task() with agent-memory-pattern (BEFORE→DURING→AFTER) → Task(Task(@agent-{name}, {task + memory_search_query + context})) → STORE-AS($STEP_RESULTS[{N}] = 'Result') → OUTPUT(✅ Step {N} complete)] → END-FOREACH] → END-IF</phase>
 <phase name="4">IF($EXECUTION_PLAN.execution_mode === "parallel") → THEN → [PARALLEL MODE: Execute independent steps concurrently → FOREACH(group in $EXECUTION_PLAN.parallel_groups) → [OUTPUT(🚀 Batch {N}: {count} steps) → Launch ALL steps CONCURRENTLY via multiple Task() calls → Each task follows agent-memory-pattern → WAIT for ALL tasks in batch to complete → STORE-AS($BATCH_RESULTS[{N}] = 'Batch results') → OUTPUT(✅ Batch {N} complete)] → END-FOREACH] → END-IF</phase>

@@ -81,6 +81,41 @@ Brain compilation system knowledge: namespaces, PHP API, archetype structures. M
 <example key="mcp">BrainNode\Mcp\{Name}Mcp - MCP classes</example>
 <example key="includes">BrainNode\Includes\{Name} - Include classes</example>
 </guideline>
+<guideline id="var-system">
+<text>Variable system for centralized configuration across archetypes. Resolution chain: ENV → Runtime → Meta → Method hook.</text>
+<example key="get">$this->var("name", $default) - Get variable with fallback chain</example>
+<example key="compare">$this->varIs("name", $value, $strict) - Compare variable to value</example>
+<example key="positive">$this->varIsPositive("name") - Check if truthy (true, 1, "1", "true")</example>
+<example key="negative">$this->varIsNegative("name") - Check if falsy</example>
+</guideline>
+<guideline id="var-resolution">
+<text>Variable resolution order (first match wins).</text>
+<example>
+<phase name="1-env">.brain/.env - Environment file (UPPER_CASE names)</phase>
+<phase name="2-runtime">Brain::setVariable() - Compiler runtime variables</phase>
+<phase name="3-meta">#[Meta("name", "value")] - Class attribute</phase>
+<phase name="4-method">Local method hook - transforms/provides fallback value</phase>
+</example>
+</guideline>
+<guideline id="var-env">
+<text>Environment variables in .brain/.env file.</text>
+<example key="case">Names auto-converted to UPPER_CASE: var("my_var") → reads MY_VAR</example>
+<example key="types">Type casting: "true"/"false" → bool, "123" → int, "1.5" → float</example>
+<example key="json">JSON arrays: "[1,2,3]" or "{\"a\":1}" → parsed arrays</example>
+<example key="cli">brain compile --show-variables - View all runtime variables</example>
+</guideline>
+<guideline id="var-method-hook">
+<text>Local method as variable hook/transformer. Method name = lowercase variable name.</text>
+<example key="signature">protected function my_var(mixed $value): mixed { return $value ?? "fallback"; }</example>
+<example key="flow">Hook receives: meta value or default → returns final value</example>
+<example key="use">Use case: conditional logic, computed values, complex fallbacks</example>
+</guideline>
+<guideline id="var-usage">
+<text>Common variable usage patterns.</text>
+<example key="conditional">Conditional: if ($this->varIsPositive("feature_x")) { ... }</example>
+<example key="value">Value: $model = $this->var("default_model", "sonnet")</example>
+<example key="centralize">Centralize: Define once in .env, use across all agents/commands</example>
+</guideline>
 <guideline id="api-runtime">
 <text>Runtime class: path constants and path-building methods.</text>
 <example key="constants">Constants: PROJECT_DIRECTORY, BRAIN_DIRECTORY, NODE_DIRECTORY, BRAIN_FILE, BRAIN_FOLDER, AGENTS_FOLDER, COMMANDS_FOLDER, SKILLS_FOLDER, MCP_FILE, AGENT, DATE, TIME, YEAR, MONTH, DAY, TIMESTAMP, UNIQUE_ID</example>

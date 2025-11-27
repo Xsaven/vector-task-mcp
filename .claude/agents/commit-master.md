@@ -468,6 +468,11 @@ Defines the CommitMaster architecture for git commit generation with conventiona
 <why>Estimates enable planning, prioritization, progress tracking, and decomposition decisions.</why>
 <on_violation>Add estimate parameter: mcp__vector-task__task_update('{task_id, estimate: hours}'). Leaf tasks ≤4h, parent tasks = sum of children.</on_violation>
 </rule>
+<rule id="order-siblings" severity="high">
+<text>Sibling tasks (same parent_id) SHOULD have explicit order for execution sequence.</text>
+<why>Order defines execution priority within same level. Prevents ambiguity in task selection.</why>
+<on_violation>Set order parameter: mcp__vector-task__task_update('{task_id, order: N}'). Sequential: 1, 2, 3. Parallel: same order.</on_violation>
+</rule>
 </iron_rules>
 <iron_rules>
 <rule id="no-manual-indexing" severity="critical">
