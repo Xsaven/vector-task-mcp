@@ -7,7 +7,7 @@ A **secure, vector-based task management server** for Claude Desktop using `sqli
 - **🔍 Semantic Search**: Vector-based task search using 384-dimensional embeddings
 - **💾 Persistent Storage**: SQLite database with vector indexing via `sqlite-vec`
 - **🏷️ Smart Organization**: Priorities, tags, and subtasks for better task management
-- **📋 Task Lifecycle**: Track tasks from pending → in_progress → completed/stopped
+- **📋 Task Lifecycle**: Track tasks from pending → in_progress → completed → tested → validated (or stopped)
 - **🔒 Security First**: Input validation, path sanitization, and resource limits
 - **⚡ High Performance**: Fast embedding generation with `sentence-transformers`
 - **📊 Rich Statistics**: Comprehensive task analytics and progress tracking
@@ -330,13 +330,22 @@ Returns:
 
 ### Task Status Lifecycle
 
+**Available statuses**: `pending`, `in_progress`, `completed`, `tested`, `validated`, `stopped`
+
 ```
-pending → (task_start) → in_progress → (task_finish) → completed
-                             ↓
-                         (task_stop)
-                             ↓
-                          stopped → (task_resume) → in_progress
+pending → in_progress → completed → tested → validated
+              ↓
+           stopped → (resume) → in_progress
 ```
+
+| Status | Description |
+|--------|-------------|
+| `pending` | Task not yet started |
+| `in_progress` | Currently being worked on |
+| `completed` | Task finished (basic completion) |
+| `tested` | Task completed and tested |
+| `validated` | Task completed, tested, and validated |
+| `stopped` | Task paused/blocked (can be resumed) |
 
 ## 🔧 Configuration
 
@@ -452,12 +461,16 @@ The `task_stats` tool provides comprehensive insights:
   "by_status": {
     "pending": 120,
     "in_progress": 8,
-    "completed": 110,
+    "completed": 80,
+    "tested": 20,
+    "validated": 10,
     "stopped": 9
   },
   "pending_count": 120,
   "in_progress_count": 8,
-  "completed_count": 110,
+  "completed_count": 80,
+  "tested_count": 20,
+  "validated_count": 10,
   "stopped_count": 9,
   "with_subtasks": 15,
   "next_task_id": 45
@@ -467,10 +480,12 @@ The `task_stats` tool provides comprehensive insights:
 ### Statistics Fields Explained
 
 - **total_tasks**: Total number of tasks in database
-- **by_status**: Task count breakdown by status
+- **by_status**: Task count breakdown by status (pending, in_progress, completed, tested, validated, stopped)
 - **pending_count**: Tasks not yet started
 - **in_progress_count**: Tasks currently being worked on
-- **completed_count**: Finished tasks
+- **completed_count**: Tasks finished (basic completion)
+- **tested_count**: Tasks that have been tested
+- **validated_count**: Tasks that have been validated
 - **stopped_count**: Tasks that were stopped (can be resumed)
 - **with_subtasks**: Number of parent tasks with subtasks
 - **next_task_id**: ID of the next task to work on (smart selection)

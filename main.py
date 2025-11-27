@@ -455,7 +455,15 @@ def create_server() -> FastMCP:
         Get next task to work on (smart selection).
 
         Returns in_progress task if any exists, otherwise returns
-        next pending task after last completed task.
+        next pending task after last finished task.
+
+        Task status lifecycle:
+        - pending: Task not yet started
+        - in_progress: Currently being worked on
+        - completed: Task finished (basic completion)
+        - tested: Task completed and tested
+        - validated: Task completed, tested and validated
+        - stopped: Task paused/blocked
         """
         try:
             task = task_store.get_next_task()

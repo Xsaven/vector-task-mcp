@@ -78,7 +78,8 @@ uv run main.py --working-dir ./
 - Індекси на status, priority, created_at, content_hash
 
 ## Task Management Features
-- **Task Lifecycle**: pending → in_progress → completed/stopped
+- **Task Lifecycle**: pending → in_progress → completed → tested → validated (or stopped at any point)
+- **Statuses**: pending, in_progress, completed, tested, validated, stopped
 - **Priorities**: low, medium, high, critical
 - **Hierarchical Tasks**: Parent-child task relationships
 - **Smart Search**: Semantic search using vector embeddings
