@@ -115,6 +115,20 @@ class TaskStore:
                 );
             """)
 
+            # Create task_time_log table for time tracking
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS task_time_log (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    task_id INTEGER NOT NULL,
+                    start_status TEXT NOT NULL,
+                    finish_status TEXT,
+                    time_spent REAL DEFAULT 0.0,
+                    start_at TEXT NOT NULL,
+                    finish_at TEXT,
+                    FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
+                )
+            """)
+
             # Create indexes for performance
             conn.execute("CREATE INDEX IF NOT EXISTS idx_task_status ON tasks(status)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_task_created ON tasks(created_at)")
@@ -123,6 +137,8 @@ class TaskStore:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_task_priority ON tasks(status, priority, created_at)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_task_tags ON tasks(tags)")
             conn.execute('CREATE INDEX IF NOT EXISTS idx_task_parent_order ON tasks(parent_id, "order")')
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_time_log_task_id ON task_time_log(task_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_time_log_incomplete ON task_time_log(task_id) WHERE finish_at IS NULL")
 
             conn.commit()
 
@@ -219,9 +235,10 @@ class TaskStore:
             non_finished = cursor.fetchone()[0]
 
             if non_finished == 0:
-                # All children finished → parent gets same finish status
-                conn.execute('UPDATE tasks SET status = ? WHERE id = ?', (new_status, parent_id))
-                self._propagate_status_to_parents(conn, parent_id, new_status)
+                # All children finished → parent always gets "completed" (not tested/validated)
+                parent_status = 'completed'
+                conn.execute('UPDATE tasks SET status = ? WHERE id = ?', (parent_status, parent_id))
+                self._propagate_status_to_parents(conn, parent_id, parent_status)
             else:
                 # Not all finished → parent should be pending (waiting for others)
                 conn.execute('UPDATE tasks SET status = ? WHERE id = ?', ('pending', parent_id))
@@ -311,6 +328,84 @@ class TaskStore:
                 )
                 # Recursively propagate finish_at up
                 self._update_parent_timestamps(conn, parent_id, new_status)
+
+    def _start_time_session(self, conn: sqlite3.Connection, task_id: int, start_status: str) -> None:
+        """
+        Create new time session record in task_time_log table.
+        Recursively propagates session start to parent tasks.
+
+        Args:
+            conn: Active database connection (must be within transaction)
+            task_id: Task ID to create session for
+            start_status: Status at session start (typically 'in_progress')
+        """
+        now = datetime.now(timezone.utc).isoformat()
+
+        try:
+            conn.execute('''
+                INSERT INTO task_time_log (task_id, start_status, start_at, time_spent)
+                VALUES (?, ?, ?, 0.0)
+            ''', (task_id, start_status, now))
+        except Exception as e:
+            raise RuntimeError(f"Failed to start time session for task {task_id}: {e}")
+
+        # Get parent_id of current task
+        cursor = conn.execute('SELECT parent_id FROM tasks WHERE id = ?', (task_id,))
+        row = cursor.fetchone()
+        if not row or not row[0]:  # No parent
+            return
+
+        parent_id = row[0]
+
+        # Recursively propagate session start to parent
+        self._start_time_session(conn, parent_id, start_status)
+
+    def _finish_time_session(self, conn: sqlite3.Connection, task_id: int, time_spent: float, finish_status: str) -> None:
+        """
+        Complete existing time session record in task_time_log table.
+        Recursively propagates session finish to parent tasks with same time_spent.
+
+        Args:
+            conn: Active database connection (must be within transaction)
+            task_id: Task ID to finish session for
+            time_spent: Time spent in HH.MM format (e.g., 1.30 = 1 hour 30 minutes)
+            finish_status: Status at session finish (e.g., completed, stopped, tested)
+        """
+        now = datetime.now(timezone.utc).isoformat()
+
+        try:
+            # Find incomplete session for this task
+            cursor = conn.execute('''
+                SELECT id FROM task_time_log
+                WHERE task_id = ? AND finish_at IS NULL
+                LIMIT 1
+            ''', (task_id,))
+
+            session = cursor.fetchone()
+
+            # If no incomplete session found, return silently (no error)
+            if not session:
+                return
+
+            # Update session with finish_at, time_spent, and finish_status
+            conn.execute('''
+                UPDATE task_time_log
+                SET finish_at = ?, time_spent = ?, finish_status = ?
+                WHERE id = ?
+            ''', (now, time_spent, finish_status, session[0]))
+        except Exception as e:
+            raise RuntimeError(f"Failed to finish time session for task {task_id}: {e}")
+
+        # Get parent_id of current task
+        cursor = conn.execute('SELECT parent_id FROM tasks WHERE id = ?', (task_id,))
+        row = cursor.fetchone()
+        if not row or not row[0]:  # No parent
+            return
+
+        parent_id = row[0]
+
+        # Recursively propagate session finish to parent with same time_spent and finish_status
+        self._finish_time_session(conn, parent_id, time_spent, finish_status)
 
     def create_task(self, title: str, content: str, parent_id: Optional[int] = None, comment: Optional[str] = None, priority: Optional[str] = None, tags: Optional[List[str]] = None, estimate: Optional[float] = None, order: Optional[int] = None) -> Dict[str, Any]:
         """
@@ -621,8 +716,10 @@ class TaskStore:
             time_delta = 0.0  # Track time spent for parent propagation
             status_changed = False
             new_status = None
+            old_status = None  # Track old status for session management
             if 'status' in validated_kwargs:
                 current_status = existing[3]  # status is 4th column (index 3)
+                old_status = current_status  # Save old status before change
                 new_status = validated_kwargs['status']
                 status_changed = True
 
@@ -834,6 +931,16 @@ class TaskStore:
             if status_changed and new_status:
                 self._propagate_status_to_parents(conn, task_id, new_status)
                 self._update_parent_timestamps(conn, task_id, new_status)
+
+            # Time session tracking - start/finish sessions on in_progress transitions
+            if status_changed and old_status is not None:
+                # Start session when entering in_progress
+                if new_status == 'in_progress' and old_status != 'in_progress':
+                    self._start_time_session(conn, task_id, old_status)
+                # Finish session when exiting in_progress
+                elif old_status == 'in_progress' and new_status != 'in_progress':
+                    if time_delta > 0:
+                        self._finish_time_session(conn, task_id, time_delta, new_status)
 
             conn.commit()
 
@@ -1738,6 +1845,8 @@ class TaskStore:
                 tested_count=status_counts.get(TaskStatus.TESTED.value, 0),
                 validated_count=status_counts.get(TaskStatus.VALIDATED.value, 0),
                 stopped_count=status_counts.get(TaskStatus.STOPPED.value, 0),
+                canceled_count=status_counts.get(TaskStatus.CANCELED.value, 0),
+                draft_count=status_counts.get(TaskStatus.DRAFT.value, 0),
                 with_subtasks=with_subtasks,
                 by_priority=priority_counts,
                 root_task_count=root_task_count,

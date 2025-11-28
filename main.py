@@ -207,7 +207,7 @@ def create_server() -> FastMCP:
             task_id: Task ID to update
             title: Optional new title
             content: Optional new content
-            status: Optional new status (pending, in_progress, completed, tested, validated, stopped)
+            status: Optional new status (draft, pending, in_progress, completed, tested, validated, stopped, canceled)
             parent_id: Optional new parent task ID
             comment: Optional comment to add or replace
             start_at: Optional start timestamp (ISO 8601 format)
@@ -388,7 +388,7 @@ def create_server() -> FastMCP:
             query: Optional semantic search query for title/content
             limit: Max results (1-50, default 10)
             offset: Starting position for pagination (default 0)
-            status: Optional status filter (pending, in_progress, completed, tested, validated, stopped)
+            status: Optional status filter (draft, pending, in_progress, completed, tested, validated, stopped, canceled)
             parent_id: Optional parent task ID filter (for subtasks)
             tags: Optional list of tags to filter by (matches tasks containing ANY of the specified tags)
             ids: Optional list of task IDs to filter by (AND logic with other filters, max 50)
@@ -458,12 +458,14 @@ def create_server() -> FastMCP:
         next pending task after last finished task.
 
         Task status lifecycle:
+        - draft: Task draft (not ready for execution)
         - pending: Task not yet started
         - in_progress: Currently being worked on
         - completed: Task finished (basic completion)
         - tested: Task completed and tested
         - validated: Task completed, tested and validated
         - stopped: Task paused/blocked
+        - canceled: Task canceled (will not be done)
         """
         try:
             task = task_store.get_next_task()
@@ -556,7 +558,7 @@ def create_server() -> FastMCP:
 
         Returns comprehensive task statistics including:
         - Total tasks count
-        - Count by status (pending, in_progress, completed, tested, validated, stopped)
+        - Count by status (draft, pending, in_progress, completed, tested, validated, stopped, canceled)
         - Tasks with subtasks count
         - Next task ID (from smart selection logic)
         - Unique tags across all tasks
@@ -568,7 +570,7 @@ def create_server() -> FastMCP:
             start_before: Filter tasks started before this date (ISO 8601 format)
             finish_after: Filter tasks finished after this date (ISO 8601 format)
             finish_before: Filter tasks finished before this date (ISO 8601 format)
-            status: Filter by task status (pending, in_progress, completed, tested, validated, stopped)
+            status: Filter by task status (draft, pending, in_progress, completed, tested, validated, stopped, canceled)
             priority: Filter by priority (low, medium, high, critical)
             tags: Filter by tags (OR logic - matches tasks with ANY specified tag)
             parent_id: Filter for subtasks of specific parent (use 0 for root tasks only)

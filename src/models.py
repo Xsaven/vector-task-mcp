@@ -132,6 +132,8 @@ class TaskStatus(Enum):
     TESTED = "tested"
     VALIDATED = "validated"
     STOPPED = "stopped"
+    CANCELED = "canceled"
+    DRAFT = "draft"
 
     @classmethod
     def list_values(cls) -> List[str]:
@@ -251,6 +253,8 @@ class TaskStats:
     tested_count: int = 0
     validated_count: int = 0
     stopped_count: int = 0
+    canceled_count: int = 0
+    draft_count: int = 0
     with_subtasks: int = 0
     by_priority: Dict[str, int] = None
     root_task_count: int = 0
@@ -283,6 +287,8 @@ class TaskStats:
             "tested_count": self.tested_count,
             "validated_count": self.validated_count,
             "stopped_count": self.stopped_count,
+            "canceled_count": self.canceled_count,
+            "draft_count": self.draft_count,
             "with_subtasks": self.with_subtasks,
             "by_priority": self.by_priority,
             "root_task_count": self.root_task_count,
