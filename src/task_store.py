@@ -411,8 +411,9 @@ class TaskStore:
 
     def _get_status_history(self, conn: sqlite3.Connection, task_id: int, limit: int = 5) -> List[Dict[str, Any]]:
         """
-        Get recent status transition history from task_time_log.
-        Returns completed sessions only (finish_at IS NOT NULL).
+        Get status transition history from task_time_log.
+        Includes both completed and incomplete (open) sessions.
+        Open sessions appear first with to/at/spent as null.
 
         Args:
             conn: Database connection
@@ -421,14 +422,16 @@ class TaskStore:
 
         Returns:
             List of dicts with keys: from, to, at, spent
-            Ordered by finish_at DESC (most recent first)
+            Ordered by: open sessions first, then finish_at DESC
         """
         cursor = conn.execute(
             """
             SELECT start_status, finish_status, finish_at, time_spent
             FROM task_time_log
-            WHERE task_id = ? AND finish_at IS NOT NULL
-            ORDER BY finish_at DESC
+            WHERE task_id = ?
+            ORDER BY
+                CASE WHEN finish_at IS NULL THEN 0 ELSE 1 END,
+                finish_at DESC
             LIMIT ?
             """,
             (task_id, limit)
