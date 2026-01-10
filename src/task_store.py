@@ -1159,8 +1159,8 @@ class TaskStore:
 
             if result:
                 task = Task.from_db_row(result)
-                # Attach status history (last 5 transitions)
-                task.status_history = self._get_status_history(conn, task_id)
+                # Attach full status history for single task retrieval
+                task.status_history = self._get_status_history(conn, task_id, limit=1000)
                 return task
             return None
 
