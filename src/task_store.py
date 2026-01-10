@@ -240,9 +240,11 @@ class TaskStore:
                 conn.execute('UPDATE tasks SET status = ? WHERE id = ?', (parent_status, parent_id))
                 self._propagate_status_to_parents(conn, parent_id, parent_status)
             else:
-                # Not all finished → parent should be pending (waiting for others)
-                conn.execute('UPDATE tasks SET status = ? WHERE id = ?', ('pending', parent_id))
-                # Don't propagate pending up - parent was already in correct state
+                # Not all finished → parent stays in_progress (active work in subtree)
+                conn.execute('UPDATE tasks SET status = ? WHERE id = ?', ('in_progress', parent_id))
+                # CRITICAL: Continue recursion to grandparent even when siblings not finished
+                # This ensures upper hierarchy is notified of activity in deep subtrees
+                self._propagate_status_to_parents(conn, parent_id, 'in_progress')
 
         elif new_status == 'in_progress':
             # Any child working → parent in_progress
@@ -406,6 +408,42 @@ class TaskStore:
 
         # Recursively propagate session finish to parent with same time_spent and finish_status
         self._finish_time_session(conn, parent_id, time_spent, finish_status)
+
+    def _get_status_history(self, conn: sqlite3.Connection, task_id: int, limit: int = 5) -> List[Dict[str, Any]]:
+        """
+        Get recent status transition history from task_time_log.
+        Returns completed sessions only (finish_at IS NOT NULL).
+
+        Args:
+            conn: Database connection
+            task_id: Task ID to get history for
+            limit: Maximum records to return (default 5)
+
+        Returns:
+            List of dicts with keys: from, to, at, spent
+            Ordered by finish_at DESC (most recent first)
+        """
+        cursor = conn.execute(
+            """
+            SELECT start_status, finish_status, finish_at, time_spent
+            FROM task_time_log
+            WHERE task_id = ? AND finish_at IS NOT NULL
+            ORDER BY finish_at DESC
+            LIMIT ?
+            """,
+            (task_id, limit)
+        )
+
+        history = []
+        for row in cursor.fetchall():
+            history.append({
+                "from": row[0],
+                "to": row[1],
+                "at": row[2],
+                "spent": row[3]
+            })
+
+        return history
 
     def create_task(self, title: str, content: str, parent_id: Optional[int] = None, comment: Optional[str] = None, priority: Optional[str] = None, tags: Optional[List[str]] = None, estimate: Optional[float] = None, order: Optional[int] = None) -> Dict[str, Any]:
         """
@@ -937,10 +975,9 @@ class TaskStore:
                 # Start session when entering in_progress
                 if new_status == 'in_progress' and old_status != 'in_progress':
                     self._start_time_session(conn, task_id, old_status)
-                # Finish session when exiting in_progress
+                # Finish session when exiting in_progress (always close, even with 0 time)
                 elif old_status == 'in_progress' and new_status != 'in_progress':
-                    if time_delta > 0:
-                        self._finish_time_session(conn, task_id, time_delta, new_status)
+                    self._finish_time_session(conn, task_id, time_delta, new_status)
 
             conn.commit()
 
@@ -1121,7 +1158,10 @@ class TaskStore:
             """, (task_id,)).fetchone()
 
             if result:
-                return Task.from_db_row(result)
+                task = Task.from_db_row(result)
+                # Attach status history (last 5 transitions)
+                task.status_history = self._get_status_history(conn, task_id)
+                return task
             return None
 
         except Exception as e:

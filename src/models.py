@@ -192,6 +192,7 @@ class Task:
     estimate: Optional[float] = None
     order: Optional[int] = None
     time_spent: float = 0.0
+    status_history: Optional[List[Dict[str, Any]]] = None
 
     def __post_init__(self):
         """Initialize default values"""
@@ -217,7 +218,8 @@ class Task:
             "tags": self.tags,
             "estimate": self.estimate,
             "order": self.order,
-            "time_spent": self.time_spent
+            "time_spent": self.time_spent,
+            "status_history": self.status_history
         }
 
     @classmethod

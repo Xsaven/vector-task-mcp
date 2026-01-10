@@ -1,5 +1,5 @@
 ---
-name: mem:list
+name: "mem:list"
 description: "List recent memories chronologically"
 ---
 
@@ -11,52 +11,54 @@ description: "List recent memories chronologically"
 <purpose>Lists recent memories in chronological order. Accepts optional limit parameter via $ARGUMENTS (default 10, max 50). Shows previews with category and tags.</purpose>
 <purpose>Lists recent memories in chronological order with content previews and metadata.</purpose>
 <guidelines>
-<guideline id="role">
-<text>Simple memory listing utility that displays recent memories chronologically with previews and metadata.</text>
-</guideline>
-<guideline id="workflow-step1">
-<text>STEP 1 - Parse $ARGUMENTS for Limit</text>
-<example>
-<phase name="format">/mem:list OR /mem:list limit=20</phase>
-<phase name="extract">Extract: limit (optional, default 10, max 50)</phase>
-<phase name="validate">IF(limit > 50) → THEN → [Set limit = 50 (max allowed)] → END-IF</phase>
-<phase name="output">STORE-AS($LIMIT = 'parsed limit value')</phase>
-</example>
-</guideline>
-<guideline id="workflow-step2">
-<text>STEP 2 - Fetch Recent Memories</text>
-<example>
-<phase name="fetch">mcp__vector-memory__list_recent_memories('{limit: STORE-GET($LIMIT)}')</phase>
-<phase name="store">STORE-AS($MEMORIES = 'recent memories array')</phase>
-</example>
-</guideline>
-<guideline id="workflow-step3">
-<text>STEP 3 - Handle No Memories</text>
-<example>
-<phase name="check">IF(STORE-GET($MEMORIES) is empty) → THEN → [Display: "No memories stored yet." → Suggest: "Use /mem:store to add your first memory"] → END-IF</phase>
-</example>
-</guideline>
-<guideline id="workflow-step4">
-<text>STEP 4 - Format and Display</text>
-<example>
-<phase name="header">Display: "--- Recent Memories ({count}) ---"</phase>
-<phase name="list">FOREACH(memory in STORE-GET($MEMORIES)) → [Display: "#{id} [{category}] {created_at}" → Display: "  {content_preview} (first 80 chars)..." → Display: "  Tags: {tags}"] → END-FOREACH</phase>
-<phase name="footer">Display: "Use /mem:get {id} to view full content"</phase>
-</example>
-</guideline>
-<guideline id="output-format">
-<text>Display format for memory list</text>
-<example key="header">--- Recent Memories (10) ---</example>
-<example key="item-line">#{id} [{category}] 2025-11-22</example>
-<example key="item-preview">  Content preview here...</example>
-<example key="item-tags">  Tags: php, laravel, auth</example>
-<example key="footer">Use /mem:get {id} to view full content</example>
-</guideline>
-<guideline id="usage-examples">
-<text>Command usage patterns</text>
-<example key="default">/mem:list → last 10 memories</example>
-<example key="custom">/mem:list limit=20 → last 20 memories</example>
-<example key="max">/mem:list limit=50 → maximum allowed</example>
-</guideline>
+
+# Input
+STORE-AS($RAW_INPUT = '$ARGUMENTS')
+STORE-AS($LIST_LIMIT = '{numeric limit extracted from $RAW_INPUT, default 10}')
+
+# Role
+Simple memory listing utility that displays recent memories chronologically with previews and metadata.
+
+# Workflow step1
+STEP 1 - Parse Arguments for Limit
+## Examples
+- format: /mem:list OR /mem:list limit=20
+- extract: STORE-AS($LIMIT = '{parse limit from $RAW_INPUT, default 10, max 50}')
+- validate: IF($LIMIT > 50) → THEN → [Set $LIMIT = 50 (max allowed)] → END-IF
+
+# Workflow step2
+STEP 2 - Fetch Recent Memories
+## Examples
+- fetch: mcp__vector-memory__list_recent_memories('{limit: STORE-GET($LIMIT)}')
+- store: STORE-AS($MEMORIES = 'recent memories array')
+
+# Workflow step3
+STEP 3 - Handle No Memories
+## Examples
+- check: IF(STORE-GET($MEMORIES) is empty) → THEN → [Display: "No memories stored yet." → Suggest: "Use /mem:store to add your first memory"] → END-IF
+
+# Workflow step4
+STEP 4 - Format and Display
+## Examples
+- header: Display: "--- Recent Memories ({count}) ---"
+- list: FOREACH(memory in STORE-GET($MEMORIES)) → [Display: "#{id} [{category}] {created_at}" → Display: "  {content_preview} (first 80 chars)..." → Display: "  Tags: {tags}"] → END-FOREACH
+- footer: Display: "Use /mem:get {id} to view full content"
+
+# Output format
+Display format for memory list
+## Examples
+- --- Recent Memories (10) ---
+- #{id} [{category}] 2025-11-22
+-   Content preview here...
+-   Tags: php, laravel, auth
+- Use /mem:get {id} to view full content
+
+# Usage examples
+Command usage patterns
+## Examples
+- /mem:list → last 10 memories
+- /mem:list limit=20 → last 20 memories
+- /mem:list limit=50 → maximum allowed
+
 </guidelines>
 </command>

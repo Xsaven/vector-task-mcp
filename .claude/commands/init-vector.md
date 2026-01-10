@@ -1,5 +1,5 @@
 ---
-name: init-vector
+name: "init-vector"
 description: "Systematically initialize vector memory by scanning entire project through sequential ExploreMaster agents"
 ---
 
@@ -10,154 +10,150 @@ description: "Systematically initialize vector memory by scanning entire project
 </meta>
 <purpose>Systematically scan and document entire project into vector memory. Sequential ExploreMaster agents explore logical areas, communicating through vector memory for continuity. Each agent searches memory before exploring, stores findings after. Enables comprehensive project knowledge base for all agents.</purpose>
 <purpose>The /init-vector command automates project knowledge base setup via parallel agent execution.</purpose>
-<iron_rules>
-<rule id="parallel-execution" severity="critical">
-<text>Launch INDEPENDENT areas in PARALLEL (multiple Task calls in single response)</text>
-<why>Maximizes throughput, reduces total initialization time</why>
-<on_violation>Group independent areas, launch simultaneously</on_violation>
-</rule>
-<rule id="brain-docs-then-document-master" severity="critical">
-<text>Use brain docs for INDEX, then DocumentationMaster agents to ANALYZE content</text>
-<why>brain docs = metadata index, DocumentationMaster = content analysis + vector storage</why>
-<on_violation>brain docs → group docs → parallel DocumentationMaster agents</on_violation>
-</rule>
-<rule id="dense-storage" severity="critical">
-<text>Store compact JSON-like format: {key:value} pairs, no verbose prose</text>
-<why>Maximizes information density, improves vector search relevance</why>
-<on_violation>Reformat to: path|type|files|classes|patterns|deps</on_violation>
-</rule>
-<rule id="memory-before-after" severity="high">
-<text>search_memories BEFORE exploring, store_memory AFTER</text>
-<why>Context continuity between agents</why>
-<on_violation>Add mandatory memory operations</on_violation>
-</rule>
-<rule id="no-questions" severity="high">
-<text>Fully automated - no user prompts</text>
-<why>Batch initialization workflow</why>
-<on_violation>Proceed autonomously</on_violation>
-</rule>
-<rule id="exclude-brain-directory" severity="critical">
-<text>NEVER scan .brain/ - Brain system internals, not project code</text>
-<why>Brain config files pollute vector memory with irrelevant system data</why>
-<on_violation>Skip .brain/ in structure discovery and all exploration phases</on_violation>
-</rule>
-</iron_rules>
-<guidelines>
-<guideline id="phase1-status">
+
+# Iron Rules
+## Parallel-execution (CRITICAL)
+Launch INDEPENDENT areas in PARALLEL (multiple Task calls in single response)
+- why: Maximizes throughput, reduces total initialization time
+- on_violation: Group independent areas, launch simultaneously
+
+## Brain-docs-then-document-master (CRITICAL)
+Use brain docs for INDEX, then DocumentationMaster agents to ANALYZE content
+- why: brain docs = metadata index, DocumentationMaster = content analysis + vector storage
+- on_violation: brain docs → group docs → parallel DocumentationMaster agents
+
+## Dense-storage (CRITICAL)
+Store compact JSON-like format: {key:value} pairs, no verbose prose
+- why: Maximizes information density, improves vector search relevance
+- on_violation: Reformat to: path|type|files|classes|patterns|deps
+
+## Memory-before-after (HIGH)
+search_memories BEFORE exploring, store_memory AFTER
+- why: Context continuity between agents
+- on_violation: Add mandatory memory operations
+
+## No-questions (HIGH)
+Fully automated - no user prompts
+- why: Batch initialization workflow
+- on_violation: Proceed autonomously
+
+## Exclude-brain-directory (CRITICAL)
+NEVER scan .brain/ - Brain system internals, not project code
+- why: Brain config files pollute vector memory with irrelevant system data
+- on_violation: Skip .brain/ in structure discovery and all exploration phases
+
+
+# Input
+STORE-AS($RAW_INPUT = '$ARGUMENTS')
+STORE-AS($INIT_PARAMS = '{initialization parameters extracted from $RAW_INPUT}')
+
+# Phase1 status
 GOAL(Check memory state, determine fresh vs augment mode)
-<example>
-<phase name="1">mcp__vector-memory__get_memory_stats('{}')</phase>
-<phase name="2">STORE-AS($MEM = '{total, categories}')</phase>
-<phase name="3">IF($MEM.total === 0) → THEN → [Fresh init] → ELSE → [Augment existing] → END-IF</phase>
-</example>
-</guideline>
-<guideline id="phase2-structure">
+## Examples
+- mcp__vector-memory__get_memory_stats('{}')
+- STORE-AS($MEM = '{total, categories}')
+- IF($MEM.total === 0) → THEN → [Fresh init] → ELSE → [Augment existing] → END-IF
+
+# Phase2 structure
 GOAL(Quick structure scan to identify areas for parallel exploration)
-<example>
-<phase name="1">Task(@agent-explore, 'TASK → [(QUICK SCAN ONLY - identify directories, not deep analysis + Glob("*") → list root directories + EXCLUDE: .brain/, vendor/, node_modules/, .git/ + Classify: code(src/app), tests, config, docs(.docs), build, deps + Output JSON: {areas: [{path, type, priority}]})] → END-TASK', 'OUTPUT({areas: [{path, type, priority: high|medium|low}]})', 'STORE-AS($AREAS)')</phase>
-</example>
-</guideline>
-<guideline id="phase3-parallel-code">
+## Examples
+- Task(@agent-explore, 'TASK → [(QUICK SCAN ONLY - identify directories, not deep analysis + Glob("*") → list root directories + EXCLUDE: .brain/, vendor/, node_modules/, .git/ + Classify: code(src/app), tests, config, docs(.docs), build, deps + Output JSON: {areas: [{path, type, priority}]})] → END-TASK', 'OUTPUT({areas: [{path, type, priority: high|medium|low}]})', 'STORE-AS($AREAS)')
+
+# Phase3 parallel code
 GOAL(PARALLEL: Launch code exploration agents simultaneously)
-<example>
-<phase name="1">
+## Examples
+- 
 BATCH 1 - Code Areas (LAUNCH IN PARALLEL):
 (Task(@agent-explore, 'TASK → [(Area: src/ or app/ + Thoroughness: very thorough + BEFORE: search_memories("src code architecture", 3) + DO: Glob(**/*.php), Grep(class|function|namespace) + EXTRACT: {path|files|classes|namespaces|patterns|deps} + AFTER: store_memory(compact_json, "architecture", ["init-vector","src"]))] → END-TASK', 'OUTPUT({path:"src",files:N,classes:N,key_patterns:[]})') + Task(@agent-explore, 'TASK → [(Area: tests/ + Thoroughness: medium + BEFORE: search_memories("tests structure", 3) + DO: Glob(**/*Test.php), identify test framework + EXTRACT: {path|test_files|coverage_areas|framework} + AFTER: store_memory(compact_json, "architecture", ["init-vector","tests"]))] → END-TASK', 'OUTPUT({path:"tests",files:N,framework:str})'))
-</phase>
-<phase name="2">NOTE: Both agents run SIMULTANEOUSLY via parallel Task calls</phase>
-</example>
-</guideline>
-<guideline id="phase3-documentation">
+
+- NOTE: Both agents run SIMULTANEOUSLY via parallel Task calls
+
+# Phase3 documentation
 GOAL(Index .docs/ via brain docs, then analyze content via DocumentationMaster agents)
-<example>
-<phase name="1">
+## Examples
+- 
 STEP 1 - Get documentation index:
 (Bash('brain docs') + STORE-AS($DOCS_INDEX = '[{path, name, description, type}]'))
-</phase>
-<phase name="2">
+
+- 
 STEP 2 - Adaptive batching based on doc count:
 (IF(docs_count <= 3) → THEN → [Single DocumentationMaster for all] → END-IF + IF(docs_count 4-8) → THEN → [2 DocumentationMaster agents in parallel] → END-IF + IF(docs_count 9-15) → THEN → [3 DocumentationMaster agents in parallel] → END-IF + IF(docs_count > 15) → THEN → [Batch by type (guide, api, concept, etc.)] → END-IF)
-</phase>
-<phase name="3">
+
+- 
 STEP 3 - PARALLEL DocumentationMaster agents (example for 6 docs):
 (Task(@agent-documentation-master, 'TASK → [(Docs batch: [{path1}, {path2}, {path3}] + Read each doc via Read tool + EXTRACT per doc: {name|type|key_concepts|related_to} + AFTER: store_memory(compact_json, "learning", ["init-vector","docs","{type}"]))] → END-TASK', 'OUTPUT({docs_analyzed:3,topics:[]})') + Task(@agent-documentation-master, 'TASK → [(Docs batch: [{path4}, {path5}, {path6}] + Read each doc via Read tool + EXTRACT per doc: {name|type|key_concepts|related_to} + AFTER: store_memory(compact_json, "learning", ["init-vector","docs","{type}"]))] → END-TASK', 'OUTPUT({docs_analyzed:3,topics:[]})'))
-</phase>
-<phase name="4">NOTE: Each doc → separate memory entry for precise vector search</phase>
-</example>
-</guideline>
-<guideline id="phase3-parallel-config">
+
+- NOTE: Each doc → separate memory entry for precise vector search
+
+# Phase3 parallel config
 GOAL(PARALLEL: Config and build areas simultaneously)
-<example>
-<phase name="1">
+## Examples
+- 
 BATCH 2 - Config/Build (LAUNCH IN PARALLEL):
 (Task(@agent-explore, 'TASK → [(Area: config/ + Thoroughness: quick + DO: Glob(config/*.php), extract key names + EXTRACT: {configs:[names],env_vars:[],services:[]} + AFTER: store_memory(compact_json, "architecture", ["init-vector","config"]))] → END-TASK', 'OUTPUT({path:"config",configs:[]})') + Task(@agent-explore, 'TASK → [(Area: build/CI files + Thoroughness: quick + DO: Find .github/, docker*, Makefile, composer.json, package.json + EXTRACT: {ci:bool,docker:bool,deps:{php:[],js:[]}} + AFTER: store_memory(compact_json, "architecture", ["init-vector","build"]))] → END-TASK', 'OUTPUT({ci:bool,docker:bool,deps:{}})'))
-</phase>
-</example>
-</guideline>
-<guideline id="phase4-synthesis">
+
+# Phase4 synthesis
 GOAL(Synthesize all findings into project-wide architecture)
-<example>
-<phase name="1">mcp__vector-memory__search_memories('{query: "init-vector", limit: 20, tags: ["init-vector"]}')</phase>
-<phase name="2">STORE-AS($ALL_FINDINGS)</phase>
-<phase name="3">mcp__vector-memory__store_memory('{'."\n"
-    .'                    content: "PROJECT:{type}|AREAS:{list}|STACK:{tech}|PATTERNS:{arch}|DEPS:{graph}",'."\n"
-    .'                    category: "architecture",'."\n"
-    .'                    tags: ["init-vector", "project-wide", "synthesis"]'."\n"
-    .'                }')</phase>
-</example>
-</guideline>
-<guideline id="phase5-complete">
+## Examples
+- mcp__vector-memory__search_memories('{query: "init-vector", limit: 20, tags: ["init-vector"]}')
+- STORE-AS($ALL_FINDINGS)
+- mcp__vector-memory__store_memory('{'."\\n"
+    .'                    content: "PROJECT:{type}|AREAS:{list}|STACK:{tech}|PATTERNS:{arch}|DEPS:{graph}",'."\\n"
+    .'                    category: "architecture",'."\\n"
+    .'                    tags: ["init-vector", "project-wide", "synthesis"]'."\\n"
+    .'                }')
+
+# Phase5 complete
 GOAL(Report completion with metrics)
-<example>
-<phase name="1">mcp__vector-memory__get_memory_stats('{}')</phase>
-<phase name="2">OUTPUT(═══ INIT-VECTOR COMPLETE ═══ Areas: {count} | Memories: {total} | Time: {elapsed} Parallel batches: 2 | Agents launched: {agent_count} ═══════════════════════════)</phase>
-</example>
-</guideline>
-<guideline id="storage-format">
-<text>Compact storage format for maximum vector search relevance</text>
-<example key="verbose">BAD: "The src/ directory contains 150 PHP files organized in MVC pattern..."</example>
-<example key="dense">GOOD: "src|150php|MVC|App\Models,App\Http|Laravel11|eloquent,routing"</example>
-<example key="schema">Format: path|files|pattern|namespaces|framework|features</example>
-</guideline>
-<guideline id="parallel-pattern">
-<text>How to execute agents in parallel</text>
-<example>
-<phase name="1">WRONG: forEach(areas) → sequential, slow</phase>
-<phase name="2">RIGHT: List multiple Task() calls in single response</phase>
-<phase name="3">Brain executes all Task() calls simultaneously</phase>
-<phase name="4">Each agent works independently, stores to memory</phase>
-<phase name="5">Wait for all to complete, then synthesize</phase>
-</example>
-</guideline>
-<guideline id="brain-docs-usage">
-<text>brain docs for INDEX, DocumentationMaster for CONTENT analysis</text>
-<example key="list-all">Bash('brain docs')</example>
-<example key="search">Bash('brain docs keyword1,keyword2')</example>
-<example key="fields">Index returns: path, name, description, type, date, version</example>
-<example key="analyze">Then: DocumentationMaster reads & analyzes actual content</example>
-<example key="flow">Each doc → Read → Extract key concepts → store_memory</example>
-</guideline>
-<guideline id="errors">
-<text>Error handling</text>
-<example key="memory-fail">MCP unavailable → abort, report</example>
-<example key="timeout">Agent timeout → skip area, continue, report in summary</example>
-<example key="empty">Empty area → store minimal, proceed</example>
-</guideline>
-<guideline id="example-fresh">
+## Examples
+- mcp__vector-memory__get_memory_stats('{}')
+- OUTPUT(═══ INIT-VECTOR COMPLETE ═══ Areas: {count} | Memories: {total} | Time: {elapsed} Parallel batches: 2 | Agents launched: {agent_count} ═══════════════════════════)
+
+# Storage format
+Compact storage format for maximum vector search relevance
+## Examples
+- BAD: "The src/ directory contains 150 PHP files organized in MVC pattern..."
+- GOOD: "src|150php|MVC|App\\Models,App\\Http|Laravel11|eloquent,routing"
+- Format: path|files|pattern|namespaces|framework|features
+
+# Parallel pattern
+How to execute agents in parallel
+## Examples
+- WRONG: forEach(areas) → sequential, slow
+- RIGHT: List multiple Task() calls in single response
+- Brain executes all Task() calls simultaneously
+- Each agent works independently, stores to memory
+- Wait for all to complete, then synthesize
+
+# Brain docs usage
+brain docs for INDEX, DocumentationMaster for CONTENT analysis
+## Examples
+- Bash('brain docs')
+- Bash('brain docs keyword1,keyword2')
+- Index returns: path, name, description, type, date, version
+- Then: DocumentationMaster reads & analyzes actual content
+- Each doc → Read → Extract key concepts → store_memory
+
+# Errors
+Error handling
+## Examples
+- MCP unavailable → abort, report
+- Agent timeout → skip area, continue, report in summary
+- Empty area → store minimal, proceed
+
+# Example fresh
 SCENARIO(Fresh initialization with 8 docs)
-<example>
-<phase name="1">Memory: 0 entries → fresh init</phase>
-<phase name="2">Structure scan: 5 areas (src, tests, config, .docs, build)</phase>
-<phase name="3a">PARALLEL: ExploreMaster(src/) + ExploreMaster(tests/) → 2 agents</phase>
-<phase name="3b">brain docs → 8 docs found → batch into 3+3+2</phase>
-<phase name="3b-parallel">PARALLEL: 3x DocumentationMaster agents</phase>
-<phase name="3c">PARALLEL: ExploreMaster(config/) + ExploreMaster(build/) → 2 agents</phase>
-<phase name="4">Synthesis: search init-vector memories → project-wide summary</phase>
-<phase name="5">Complete: 15 memories, 7 agents (4 Explore + 3 DocMaster)</phase>
-</example>
-</guideline>
-<guideline id="directive">
-<text>PARALLEL agents! brain docs → DocumentationMaster! Dense storage! Fast init!</text>
-</guideline>
-</guidelines>
+## Examples
+- Memory: 0 entries → fresh init
+- Structure scan: 5 areas (src, tests, config, .docs, build)
+- 3a: PARALLEL: ExploreMaster(src/) + ExploreMaster(tests/) → 2 agents
+- 3b: brain docs → 8 docs found → batch into 3+3+2
+- 3b-parallel: PARALLEL: 3x DocumentationMaster agents
+- 3c: PARALLEL: ExploreMaster(config/) + ExploreMaster(build/) → 2 agents
+- Synthesis: search init-vector memories → project-wide summary
+- Complete: 15 memories, 7 agents (4 Explore + 3 DocMaster)
+
+# Directive
+PARALLEL agents! brain docs → DocumentationMaster! Dense storage! Fast init!
+
 </command>

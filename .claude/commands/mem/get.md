@@ -1,5 +1,5 @@
 ---
-name: mem:get
+name: "mem:get"
 description: "Get specific memory by ID"
 ---
 
@@ -11,65 +11,68 @@ description: "Get specific memory by ID"
 <purpose>Retrieves and displays full content of a specific memory by ID from $ARGUMENTS. Shows all metadata, full content, and suggested actions.</purpose>
 <purpose>Retrieves and displays full content of a specific memory by ID.</purpose>
 <guidelines>
-<guideline id="role">
-<text>Memory retrieval utility that fetches and displays full content of a specific memory by ID.</text>
-</guideline>
-<guideline id="workflow-step1">
-<text>STEP 1 - Parse $ARGUMENTS for Memory ID</text>
-<example>
-<phase name="format-1">/mem:get 15 → get memory by ID</phase>
-<phase name="format-2">/mem:get id=15 → explicit parameter</phase>
-<phase name="validate">IF($ARGUMENTS is empty or not a number) → THEN → [Display: "Error: Memory ID required" → Display: "Usage: /mem:get {id}" → SKIP(No ID provided)] → END-IF</phase>
-<phase name="output">STORE-AS($MEMORY_ID = 'parsed integer ID')</phase>
-</example>
-</guideline>
-<guideline id="workflow-step2">
-<text>STEP 2 - Fetch Memory by ID</text>
-<example>
-<phase name="fetch">mcp__vector-memory__get_by_memory_id('{memory_id: STORE-GET($MEMORY_ID)}')</phase>
-<phase name="store">STORE-AS($MEMORY = 'memory object or null')</phase>
-</example>
-</guideline>
-<guideline id="workflow-step3">
-<text>STEP 3 - Handle Memory Not Found</text>
-<example>
-<phase name="check">IF(STORE-GET($MEMORY) is null) → THEN → [Display: "Memory #{id} not found." → Suggest: "Use /mem:list to see available memories" → Suggest: "Use /mem:search to find by content"] → END-IF</phase>
-</example>
-</guideline>
-<guideline id="workflow-step4">
-<text>STEP 4 - Display Full Memory Content</text>
-<example>
-<phase name="header">Display: "--- Memory #{id} ---"</phase>
-<phase name="meta">Display: "Category: {category}" → Display: "Tags: {tags}" → Display: "Created: {created_at}" → Display: "Updated: {updated_at}" → Display: "Access count: {access_count}"</phase>
-<phase name="divider">Display: "---"</phase>
-<phase name="content">Display: "{full_content}"</phase>
-<phase name="divider-end">Display: "---"</phase>
-<phase name="actions">Display: "Actions:" → Display: "  /mem:cleanup id={id} → delete this memory" → Display: "  /mem:search \"{first_words}\" → find similar"</phase>
-</example>
-</guideline>
-<guideline id="output-format">
-<text>Memory display format</text>
-<example key="header">--- Memory #15 ---</example>
-<example key="category">Category: code-solution</example>
-<example key="tags">Tags: php, laravel, auth</example>
-<example key="created">Created: 2025-11-20 14:30:00</example>
-<example key="access">Access count: 5</example>
-<example key="divider">---</example>
-<example key="content">{full memory content here}</example>
-<example key="actions">Actions:</example>
-<example key="action-delete">  /mem:cleanup id=15 → delete</example>
-<example key="action-search">  /mem:search "keywords" → find similar</example>
-</guideline>
-<guideline id="usage-examples">
-<text>Command usage patterns</text>
-<example key="simple">/mem:get 15 → get memory #15</example>
-<example key="explicit">/mem:get id=15 → explicit parameter</example>
-</guideline>
-<guideline id="error-messages">
-<text>Error handling messages</text>
-<example key="no-id">Error: Memory ID required</example>
-<example key="not-found">Memory #15 not found.</example>
-<example key="suggest-list">Use /mem:list to see available memories</example>
-</guideline>
+
+# Role
+Memory retrieval utility that fetches and displays full content of a specific memory by ID.
+
+# Workflow step1
+STEP 1 - Parse Arguments for Memory ID
+## Examples
+- format-1: /mem:get 15 → get memory by ID
+- format-2: /mem:get id=15 → explicit parameter
+- validate: IF(STORE-GET($RAW_INPUT) is empty or not a number) → THEN → [Display: "Error: Memory ID required" → Display: "Usage: /mem:get {id}" → SKIP(No ID provided)] → END-IF
+
+# Input
+STORE-AS($RAW_INPUT = '$ARGUMENTS')
+STORE-AS($MEMORY_ID = '{numeric ID extracted from $RAW_INPUT}')
+
+# Workflow step2
+STEP 2 - Fetch Memory by ID
+## Examples
+- fetch: mcp__vector-memory__get_by_memory_id('{memory_id: STORE-GET($MEMORY_ID)}')
+- store: STORE-AS($MEMORY = 'memory object or null')
+
+# Workflow step3
+STEP 3 - Handle Memory Not Found
+## Examples
+- check: IF(STORE-GET($MEMORY) is null) → THEN → [Display: "Memory #{id} not found." → Suggest: "Use /mem:list to see available memories" → Suggest: "Use /mem:search to find by content"] → END-IF
+
+# Workflow step4
+STEP 4 - Display Full Memory Content
+## Examples
+- header: Display: "--- Memory #{id} ---"
+- meta: Display: "Category: {category}" → Display: "Tags: {tags}" → Display: "Created: {created_at}" → Display: "Updated: {updated_at}" → Display: "Access count: {access_count}"
+- divider: Display: "---"
+- content: Display: "{full_content}"
+- divider-end: Display: "---"
+- actions: Display: "Actions:" → Display: "  /mem:cleanup id={id} → delete this memory" → Display: "  /mem:search \\"{first_words}\\" → find similar"
+
+# Output format
+Memory display format
+## Examples
+- --- Memory #15 ---
+- Category: code-solution
+- Tags: php, laravel, auth
+- Created: 2025-11-20 14:30:00
+- Access count: 5
+- ---
+- {full memory content here}
+- Actions:
+-   /mem:cleanup id=15 → delete
+-   /mem:search "keywords" → find similar
+
+# Usage examples
+Command usage patterns
+## Examples
+- /mem:get 15 → get memory #15
+- /mem:get id=15 → explicit parameter
+
+# Error messages
+Error handling messages
+## Examples
+- Error: Memory ID required
+- Memory #15 not found.
+- Use /mem:list to see available memories
+
 </guidelines>
 </command>

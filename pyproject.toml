@@ -54,3 +54,8 @@ py-modules = ["main"]
 
 [tool.setuptools.package-data]
 "*" = ["*.md"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+]
