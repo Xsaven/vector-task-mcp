@@ -236,6 +236,31 @@ class TaskStore:
             # Recursively check grandparent
             self._propagate_completed_to_parents(conn, parent_id)
 
+    def _propagate_pending_to_parents(self, conn: sqlite3.Connection, task_id: int) -> None:
+        """
+        Recursively propagate 'pending' status to parent tasks when ANY child returns to pending.
+
+        Rules:
+        - Parent gets 'pending' when ANY child becomes 'pending'
+        - Recursively propagates up the parent chain
+
+        Args:
+            conn: Active database connection (must be within transaction)
+            task_id: Current task ID whose status just changed to 'pending'
+        """
+        # Get parent_id of current task
+        cursor = conn.execute('SELECT parent_id FROM tasks WHERE id = ?', (task_id,))
+        row = cursor.fetchone()
+        if not row or not row[0]:  # No parent
+            return
+
+        parent_id = row[0]
+
+        # Set parent to 'pending' unconditionally
+        conn.execute('UPDATE tasks SET status = ? WHERE id = ?', ('pending', parent_id))
+        # Recursively propagate to grandparent
+        self._propagate_pending_to_parents(conn, parent_id)
+
     def _start_time_session(self, conn: sqlite3.Connection, task_id: int, start_status: str) -> None:
         """
         Create new time session record in task_time_log table.
@@ -871,6 +896,10 @@ class TaskStore:
             # Propagate 'completed' status to parent when ALL children are finished
             if status_changed and new_status in TaskStatus.finish_statuses():
                 self._propagate_completed_to_parents(conn, task_id)
+
+            # Propagate 'pending' status to parent when ANY child returns to pending
+            if status_changed and new_status == 'pending':
+                self._propagate_pending_to_parents(conn, task_id)
 
             conn.commit()
 
