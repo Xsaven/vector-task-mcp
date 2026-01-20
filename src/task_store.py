@@ -264,7 +264,7 @@ class TaskStore:
     def _start_time_session(self, conn: sqlite3.Connection, task_id: int, start_status: str) -> None:
         """
         Create new time session record in task_time_log table.
-        Recursively propagates session start to parent tasks.
+        Only creates session for the specified task (no parent propagation).
 
         Args:
             conn: Active database connection (must be within transaction)
@@ -281,21 +281,10 @@ class TaskStore:
         except Exception as e:
             raise RuntimeError(f"Failed to start time session for task {task_id}: {e}")
 
-        # Get parent_id of current task
-        cursor = conn.execute('SELECT parent_id FROM tasks WHERE id = ?', (task_id,))
-        row = cursor.fetchone()
-        if not row or not row[0]:  # No parent
-            return
-
-        parent_id = row[0]
-
-        # Recursively propagate session start to parent
-        self._start_time_session(conn, parent_id, start_status)
-
     def _finish_time_session(self, conn: sqlite3.Connection, task_id: int, time_spent: float, finish_status: str) -> None:
         """
         Complete existing time session record in task_time_log table.
-        Recursively propagates session finish to parent tasks with same time_spent.
+        Only completes session for the specified task (no parent propagation).
 
         Args:
             conn: Active database connection (must be within transaction)
@@ -327,17 +316,6 @@ class TaskStore:
             ''', (now, time_spent, finish_status, session[0]))
         except Exception as e:
             raise RuntimeError(f"Failed to finish time session for task {task_id}: {e}")
-
-        # Get parent_id of current task
-        cursor = conn.execute('SELECT parent_id FROM tasks WHERE id = ?', (task_id,))
-        row = cursor.fetchone()
-        if not row or not row[0]:  # No parent
-            return
-
-        parent_id = row[0]
-
-        # Recursively propagate session finish to parent with same time_spent and finish_status
-        self._finish_time_session(conn, parent_id, time_spent, finish_status)
 
     def _get_status_history(self, conn: sqlite3.Connection, task_id: int, limit: int = 5) -> List[Dict[str, Any]]:
         """
