@@ -222,6 +222,17 @@ class TaskStore:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_time_log_task_id ON task_time_log(task_id)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_time_log_incomplete ON task_time_log(task_id) WHERE finish_at IS NULL")
 
+            # Additional indexes for CRM filtering performance
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_task_start_at ON tasks(start_at)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_task_finish_at ON tasks(finish_at)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_task_estimate ON tasks(estimate)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_task_status_parent ON tasks(status, parent_id)")
+            conn.execute('CREATE INDEX IF NOT EXISTS idx_task_order ON tasks("order")')
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_task_time_spent ON tasks(time_spent)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_time_log_start_at ON task_time_log(start_at)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_time_log_finish_at ON task_time_log(finish_at)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_time_log_finish_status ON task_time_log(finish_status)")
+
             conn.commit()
 
         except Exception as e:
@@ -237,6 +248,8 @@ class TaskStore:
         sqlite_vec.load(conn)
         # Enable WAL mode for safe concurrent access
         conn.execute("PRAGMA journal_mode=WAL")
+        # Enable foreign key enforcement
+        conn.execute("PRAGMA foreign_keys = ON")
         conn.enable_load_extension(False)
         return conn
 

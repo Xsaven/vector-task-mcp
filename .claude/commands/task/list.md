@@ -8,7 +8,7 @@ description: "List tasks with optional filters (status, parent, tags, priority)"
 <id>task:list</id>
 <description>List tasks with optional filters (status, parent, tags, priority)</description>
 </meta>
-<execute>Lists tasks from vector-task storage with optional filters. Parses $ARGUMENTS for filters (status, parent_id, tags, priority), queries vector-task MCP, and displays formatted hierarchical task list with status/priority indicators.</execute>
+<execute>List vector tasks with optional filters and hierarchy display.</execute>
 <provides>Task listing utility that queries vector storage and displays formatted task hierarchy with status and priority indicators. Supports filters: status, parent_id, tags, priority, limit.</provides>
 <guidelines>
 

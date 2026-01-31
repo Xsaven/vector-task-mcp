@@ -84,14 +84,14 @@
         },
         "commandReference": {
             "type": "string",
-            "description": "Reference to a compiled command. Available commands: async-command, sync-command, do-command, work-command, init-agents-command, init-brain-command, init-task-command, init-vector-command, cleanup-command, get-command, list-command, search-command, stats-command, store-command, create-command, decompose-command, list-command, status-command",
-            "pattern": "^(async\\-command|sync\\-command|do\\-command|work\\-command|init\\-agents\\-command|init\\-brain\\-command|init\\-task\\-command|init\\-vector\\-command|cleanup\\-command|get\\-command|list\\-command|search\\-command|stats\\-command|store\\-command|create\\-command|decompose\\-command|list\\-command|status\\-command)$",
+            "description": "Reference to a compiled command. Available commands: async-command, brainstorm-command, sync-command, test-validate-command, validate-command, do-command, work-command, init-agents-command, init-brain-command, init-task-command, init-vector-command, cleanup-command, get-command, list-command, search-command, stats-command, store-command, async-command, brainstorm-command, create-command, decompose-command, list-command, status-command, sync-command, validate-command, validate-sync-command",
+            "pattern": "^(async\\-command|brainstorm\\-command|sync\\-command|test\\-validate\\-command|validate\\-command|do\\-command|work\\-command|init\\-agents\\-command|init\\-brain\\-command|init\\-task\\-command|init\\-vector\\-command|cleanup\\-command|get\\-command|list\\-command|search\\-command|stats\\-command|store\\-command|async\\-command|brainstorm\\-command|create\\-command|decompose\\-command|list\\-command|status\\-command|sync\\-command|validate\\-command|validate\\-sync\\-command)$",
             "examples": [
                 "async-command",
+                "brainstorm-command",
                 "sync-command",
-                "do-command",
-                "work-command",
-                "init-agents-command"
+                "test-validate-command",
+                "validate-command"
             ]
         },
         "availableModels": {
@@ -744,6 +744,34 @@
                     "type": "string",
                     "description": "Custom CRITICAL rule #2 for AsyncCommand"
                 },
+                "BRAINSTORM_COMMAND_GUIDELINE_0": {
+                    "type": "string",
+                    "description": "Custom guideline #0 for BrainstormCommand"
+                },
+                "BRAINSTORM_COMMAND_GUIDELINE_1": {
+                    "type": "string",
+                    "description": "Custom guideline #1 for BrainstormCommand"
+                },
+                "BRAINSTORM_COMMAND_GUIDELINE_2": {
+                    "type": "string",
+                    "description": "Custom guideline #2 for BrainstormCommand"
+                },
+                "BRAINSTORM_COMMAND_MODEL": {
+                    "type": "string",
+                    "description": "Model override for BrainstormCommand"
+                },
+                "BRAINSTORM_COMMAND_RULE_0": {
+                    "type": "string",
+                    "description": "Custom CRITICAL rule #0 for BrainstormCommand"
+                },
+                "BRAINSTORM_COMMAND_RULE_1": {
+                    "type": "string",
+                    "description": "Custom CRITICAL rule #1 for BrainstormCommand"
+                },
+                "BRAINSTORM_COMMAND_RULE_2": {
+                    "type": "string",
+                    "description": "Custom CRITICAL rule #2 for BrainstormCommand"
+                },
                 "BRAIN_DISABLE": {
                     "type": "string",
                     "description": "Disable Brain compilation (true/false)"
@@ -816,6 +844,10 @@
                     "type": "string",
                     "description": "Disable AsyncCommand from compilation (true/false)"
                 },
+                "COMMANDS_BRAINSTORM_COMMAND_DISABLE": {
+                    "type": "string",
+                    "description": "Disable BrainstormCommand from compilation (true/false)"
+                },
                 "COMMANDS_CLEANUP_COMMAND_DISABLE": {
                     "type": "string",
                     "description": "Disable CleanupCommand from compilation (true/false)"
@@ -875,6 +907,18 @@
                 "COMMANDS_SYNC_COMMAND_DISABLE": {
                     "type": "string",
                     "description": "Disable SyncCommand from compilation (true/false)"
+                },
+                "COMMANDS_TEST_VALIDATE_COMMAND_DISABLE": {
+                    "type": "string",
+                    "description": "Disable TestValidateCommand from compilation (true/false)"
+                },
+                "COMMANDS_VALIDATE_COMMAND_DISABLE": {
+                    "type": "string",
+                    "description": "Disable ValidateCommand from compilation (true/false)"
+                },
+                "COMMANDS_VALIDATE_SYNC_COMMAND_DISABLE": {
+                    "type": "string",
+                    "description": "Disable ValidateSyncCommand from compilation (true/false)"
                 },
                 "COMMANDS_WORK_COMMAND_DISABLE": {
                     "type": "string",
@@ -1623,6 +1667,90 @@
                 "TESTING_MASTER_RULE_2": {
                     "type": "string",
                     "description": "Custom CRITICAL rule #2 for TestingMaster"
+                },
+                "TEST_VALIDATE_COMMAND_GUIDELINE_0": {
+                    "type": "string",
+                    "description": "Custom guideline #0 for TestValidateCommand"
+                },
+                "TEST_VALIDATE_COMMAND_GUIDELINE_1": {
+                    "type": "string",
+                    "description": "Custom guideline #1 for TestValidateCommand"
+                },
+                "TEST_VALIDATE_COMMAND_GUIDELINE_2": {
+                    "type": "string",
+                    "description": "Custom guideline #2 for TestValidateCommand"
+                },
+                "TEST_VALIDATE_COMMAND_MODEL": {
+                    "type": "string",
+                    "description": "Model override for TestValidateCommand"
+                },
+                "TEST_VALIDATE_COMMAND_RULE_0": {
+                    "type": "string",
+                    "description": "Custom CRITICAL rule #0 for TestValidateCommand"
+                },
+                "TEST_VALIDATE_COMMAND_RULE_1": {
+                    "type": "string",
+                    "description": "Custom CRITICAL rule #1 for TestValidateCommand"
+                },
+                "TEST_VALIDATE_COMMAND_RULE_2": {
+                    "type": "string",
+                    "description": "Custom CRITICAL rule #2 for TestValidateCommand"
+                },
+                "VALIDATE_COMMAND_GUIDELINE_0": {
+                    "type": "string",
+                    "description": "Custom guideline #0 for ValidateCommand"
+                },
+                "VALIDATE_COMMAND_GUIDELINE_1": {
+                    "type": "string",
+                    "description": "Custom guideline #1 for ValidateCommand"
+                },
+                "VALIDATE_COMMAND_GUIDELINE_2": {
+                    "type": "string",
+                    "description": "Custom guideline #2 for ValidateCommand"
+                },
+                "VALIDATE_COMMAND_MODEL": {
+                    "type": "string",
+                    "description": "Model override for ValidateCommand"
+                },
+                "VALIDATE_COMMAND_RULE_0": {
+                    "type": "string",
+                    "description": "Custom CRITICAL rule #0 for ValidateCommand"
+                },
+                "VALIDATE_COMMAND_RULE_1": {
+                    "type": "string",
+                    "description": "Custom CRITICAL rule #1 for ValidateCommand"
+                },
+                "VALIDATE_COMMAND_RULE_2": {
+                    "type": "string",
+                    "description": "Custom CRITICAL rule #2 for ValidateCommand"
+                },
+                "VALIDATE_SYNC_COMMAND_GUIDELINE_0": {
+                    "type": "string",
+                    "description": "Custom guideline #0 for ValidateSyncCommand"
+                },
+                "VALIDATE_SYNC_COMMAND_GUIDELINE_1": {
+                    "type": "string",
+                    "description": "Custom guideline #1 for ValidateSyncCommand"
+                },
+                "VALIDATE_SYNC_COMMAND_GUIDELINE_2": {
+                    "type": "string",
+                    "description": "Custom guideline #2 for ValidateSyncCommand"
+                },
+                "VALIDATE_SYNC_COMMAND_MODEL": {
+                    "type": "string",
+                    "description": "Model override for ValidateSyncCommand"
+                },
+                "VALIDATE_SYNC_COMMAND_RULE_0": {
+                    "type": "string",
+                    "description": "Custom CRITICAL rule #0 for ValidateSyncCommand"
+                },
+                "VALIDATE_SYNC_COMMAND_RULE_1": {
+                    "type": "string",
+                    "description": "Custom CRITICAL rule #1 for ValidateSyncCommand"
+                },
+                "VALIDATE_SYNC_COMMAND_RULE_2": {
+                    "type": "string",
+                    "description": "Custom CRITICAL rule #2 for ValidateSyncCommand"
                 },
                 "VECTOR_MASTER_GUIDELINE_0": {
                     "type": "string",

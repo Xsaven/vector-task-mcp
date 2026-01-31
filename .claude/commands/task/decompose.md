@@ -8,7 +8,7 @@ description: "Decompose large task into subtasks (each <=5-8h)"
 <id>task:decompose</id>
 <description>Decompose large task into subtasks (each <=5-8h)</description>
 </meta>
-<execute>Decomposes large tasks (>5-8h estimate) into smaller, manageable subtasks. Each subtask MUST have estimate <=5-8 hours (GOLDEN RULE). Recursively flags subtasks exceeding 8h for further decomposition. Input: $ARGUMENTS = task_id. Requires mandatory user approval before creating subtasks.</execute>
+<execute>Split large vector task into 5-8h subtasks with logical execution order.</execute>
 <provides>Task decomposition into subtasks. 2 parallel agents research (code + memory), plans logical execution order, creates subtasks. NEVER executes - only creates.</provides>
 
 # Iron Rules

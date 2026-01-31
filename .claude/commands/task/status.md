@@ -8,7 +8,7 @@ description: "Show task statistics with optional custom query ($ARGUMENTS)"
 <id>task:status</id>
 <description>Show task statistics with optional custom query ($ARGUMENTS)</description>
 </meta>
-<execute>Displays task statistics and progress. Supports custom queries via $ARGUMENTS: time filters (yesterday, today, this week, this month), status filters (completed, pending, in_progress), grouping (by priority, by tags), and specific parent queries (parent_id=N). Empty $ARGUMENTS shows default overview.</execute>
+<execute>Show task statistics and progress overview.</execute>
 <provides>Provides detailed task status information based on user input. Supports time-based filters, status filters, grouping, and specific parent queries.</provides>
 
 # Iron Rules

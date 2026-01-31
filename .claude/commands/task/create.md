@@ -8,7 +8,7 @@ description: "Create task from description with analysis and estimation"
 <id>task:create</id>
 <description>Create task from description with analysis and estimation</description>
 </meta>
-<execute>Creates task(s) from user description provided via $ARGUMENTS. Analyzes relevant materials, searches vector memory for similar past work, estimates time, gets mandatory user approval, creates task(s), and recommends decomposition if estimate >5-8 hours. Golden rule: each task 5-8 hours max.</execute>
+<execute>Create vector task(s) from user description with analysis and estimation.</execute>
 <provides>Task creation specialist that analyzes user descriptions, researches context, estimates effort, and creates well-structured tasks after user approval.</provides>
 
 # Iron Rules
