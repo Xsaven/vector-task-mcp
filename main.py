@@ -73,7 +73,7 @@ def get_timezone() -> str | None:
 def create_server() -> FastMCP:
     """Create and configure the MCP server"""
 
-    # Initialize task store
+    # Initialize task store (database and embedding model are lazy-loaded on first use)
     try:
         working_dir = get_working_dir()
         timezone = get_timezone()
@@ -81,7 +81,7 @@ def create_server() -> FastMCP:
         memory_dir.mkdir(parents=True, exist_ok=True)
         task_db_path = memory_dir / "tasks.db"
         task_store = TaskStore(task_db_path, timezone=timezone)
-        print(f"Task database initialized: {task_db_path}", file=sys.stderr)
+        print(f"Task database path: {task_db_path} (lazy initialization)", file=sys.stderr)
     except Exception as e:
         print(f"Failed to initialize task store: {e}", file=sys.stderr)
         sys.exit(1)
@@ -94,7 +94,7 @@ def create_server() -> FastMCP:
     # ===============================================================================
 
     @mcp.tool()
-    def task_create(
+    async def task_create(
         title: str,
         content: str,
         parent_id: int = None,
@@ -118,6 +118,12 @@ def create_server() -> FastMCP:
             tags: Optional list of tags for organization (max 10)
         """
         try:
+            # Ensure database is initialized (lazy loading)
+            await task_store._ensure_db_initialized_async()
+
+            # Get embedding model asynchronously (lazy loading)
+            model = await task_store.get_embedding_model_async()
+
             result = task_store.create_task(
                 title=title,
                 content=content,
@@ -126,7 +132,8 @@ def create_server() -> FastMCP:
                 priority=priority,
                 tags=tags,
                 estimate=estimate,
-                order=order
+                order=order,
+                embedding_model=model
             )
             return result
 
@@ -144,7 +151,7 @@ def create_server() -> FastMCP:
             }
 
     @mcp.tool()
-    def task_create_bulk(tasks: list[dict]) -> dict[str, Any]:
+    async def task_create_bulk(tasks: list[dict]) -> dict[str, Any]:
         """
         Create multiple tasks in bulk with vector embeddings.
 
@@ -166,7 +173,13 @@ def create_server() -> FastMCP:
             ]
         """
         try:
-            result = task_store.create_tasks_bulk(tasks)
+            # Ensure database is initialized (lazy loading)
+            await task_store._ensure_db_initialized_async()
+
+            # Get embedding model asynchronously (lazy loading)
+            model = await task_store.get_embedding_model_async()
+
+            result = task_store.create_tasks_bulk(tasks, embedding_model=model)
             return result
 
         except SecurityError as e:
@@ -183,7 +196,7 @@ def create_server() -> FastMCP:
             }
 
     @mcp.tool()
-    def task_update(
+    async def task_update(
         task_id: int,
         title: str | None = None,
         content: str | None = None,
@@ -221,6 +234,9 @@ def create_server() -> FastMCP:
             remove_tag: Optional single tag to remove (case-insensitive, silent if not found)
         """
         try:
+            # Ensure database is initialized (lazy loading)
+            await task_store._ensure_db_initialized_async()
+
             if not isinstance(task_id, int) or task_id < 1:
                 return {
                     "success": False,
@@ -292,7 +308,12 @@ def create_server() -> FastMCP:
             if tags is not None:
                 kwargs['tags'] = tags
 
-            result = task_store.update_task(task_id, **kwargs)
+            # Only load embedding model if title, content, or tags are changing
+            embedding_model = None
+            if title is not None or content is not None or tags is not None or add_tag is not None or remove_tag is not None:
+                embedding_model = await task_store.get_embedding_model_async()
+
+            result = task_store.update_task(task_id, embedding_model=embedding_model, **kwargs)
             return result
 
         except SecurityError as e:
@@ -309,7 +330,7 @@ def create_server() -> FastMCP:
             }
 
     @mcp.tool()
-    def task_delete(task_id: int) -> dict[str, Any]:
+    async def task_delete(task_id: int) -> dict[str, Any]:
         """
         Delete task by ID (permanent, cannot be undone).
 
@@ -317,6 +338,9 @@ def create_server() -> FastMCP:
             task_id: Task ID to delete
         """
         try:
+            # Ensure database is initialized (lazy loading)
+            await task_store._ensure_db_initialized_async()
+
             if not isinstance(task_id, int) or task_id < 1:
                 return {
                     "success": False,
@@ -347,7 +371,7 @@ def create_server() -> FastMCP:
             }
 
     @mcp.tool()
-    def task_delete_bulk(task_ids: list[int]) -> dict[str, Any]:
+    async def task_delete_bulk(task_ids: list[int]) -> dict[str, Any]:
         """
         Delete multiple tasks by IDs (permanent, cannot be undone).
 
@@ -355,6 +379,9 @@ def create_server() -> FastMCP:
             task_ids: List of task IDs to delete
         """
         try:
+            # Ensure database is initialized (lazy loading)
+            await task_store._ensure_db_initialized_async()
+
             result = task_store.delete_tasks_bulk(task_ids)
             return result
 
@@ -372,7 +399,7 @@ def create_server() -> FastMCP:
             }
 
     @mcp.tool()
-    def task_list(
+    async def task_list(
         query: str = None,
         limit: int = 10,
         offset: int = 0,
@@ -394,6 +421,9 @@ def create_server() -> FastMCP:
             ids: Optional list of task IDs to filter by (AND logic with other filters, max 50)
         """
         try:
+            # Ensure database is initialized (lazy loading)
+            await task_store._ensure_db_initialized_async()
+
             # Validate parameters
             limit, offset, status, parent_id, validated_tags, validated_ids = validate_task_list_params(
                 limit=limit,
@@ -404,6 +434,11 @@ def create_server() -> FastMCP:
                 ids=ids
             )
 
+            # Only load embedding model if query is provided (semantic search)
+            embedding_model = None
+            if query:
+                embedding_model = await task_store.get_embedding_model_async()
+
             # Search tasks
             tasks, total = task_store.search_tasks(
                 query=query,
@@ -412,7 +447,8 @@ def create_server() -> FastMCP:
                 status=status,
                 parent_id=parent_id,
                 tags=validated_tags,
-                ids=validated_ids
+                ids=validated_ids,
+                embedding_model=embedding_model
             )
 
             if not tasks:
@@ -450,7 +486,7 @@ def create_server() -> FastMCP:
             }
 
     @mcp.tool()
-    def task_next() -> dict[str, Any]:
+    async def task_next() -> dict[str, Any]:
         """
         Get next task to work on (smart selection).
 
@@ -468,6 +504,9 @@ def create_server() -> FastMCP:
         - canceled: Task canceled (will not be done)
         """
         try:
+            # Ensure database is initialized (lazy loading)
+            await task_store._ensure_db_initialized_async()
+
             task = task_store.get_next_task()
 
             if task is None:
@@ -491,7 +530,7 @@ def create_server() -> FastMCP:
             }
 
     @mcp.tool()
-    def task_get(task_id: int) -> dict[str, Any]:
+    async def task_get(task_id: int) -> dict[str, Any]:
         """
         Get task by ID.
 
@@ -499,6 +538,9 @@ def create_server() -> FastMCP:
             task_id: Task ID to retrieve
         """
         try:
+            # Ensure database is initialized (lazy loading)
+            await task_store._ensure_db_initialized_async()
+
             if not isinstance(task_id, int) or task_id < 1:
                 return {
                     "success": False,
@@ -541,7 +583,7 @@ def create_server() -> FastMCP:
             }
 
     @mcp.tool()
-    def task_stats(
+    async def task_stats(
         created_after: str = None,
         created_before: str = None,
         start_after: str = None,
@@ -576,6 +618,9 @@ def create_server() -> FastMCP:
             parent_id: Filter for subtasks of specific parent (use 0 for root tasks only)
         """
         try:
+            # Ensure database is initialized (lazy loading)
+            await task_store._ensure_db_initialized_async()
+
             # Validate filter parameters
             (
                 validated_created_after, validated_created_before,

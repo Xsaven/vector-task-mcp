@@ -8,50 +8,51 @@ description: "Semantic search memories with optional filters"
 <id>mem:search</id>
 <description>Semantic search memories with optional filters</description>
 </meta>
-<purpose>Searches memories using semantic similarity from $ARGUMENTS query. Supports filters: category, limit, offset, tags. Displays results with similarity scores.</purpose>
-<purpose>Semantic memory search with flexible filters. Displays results with similarity scores and content previews.</purpose>
+<execute>Searches memories using semantic similarity from $ARGUMENTS query. Supports filters: category, limit, offset, tags. Displays results with similarity scores.</execute>
+<provides>Semantic memory search with flexible filters. Displays results with similarity scores and content previews.</provides>
 <guidelines>
 
 # Input
-STORE-AS($RAW_INPUT = '$ARGUMENTS')
-STORE-AS($SEARCH_QUERY = '{search query extracted from $RAW_INPUT}')
+STORE-AS($RAW_INPUT = $ARGUMENTS)
+STORE-AS($SEARCH_QUERY = {search query extracted from $RAW_INPUT})
 
 # Role
 Semantic memory search utility that queries vector storage with optional filters and displays formatted results with similarity scores.
 
 # Workflow step1
 STEP 1 - Parse Arguments for Query and Filters
-## Examples
-- format-1: Simple query: /mem:search "authentication patterns"
-- format-2: With filters: /mem:search query="auth" category=code-solution limit=20
-- format-3: With tags: /mem:search query="api" tags=laravel,php
-- extract: STORE-AS($QUERY = '{parse query from $RAW_INPUT, required}')
-- filters: STORE-AS($FILTERS = '{parse category?, limit?, offset?, tags? from $RAW_INPUT}')
-- defaults: Defaults: limit=10, offset=0
-- output: STORE-AS($PARAMS = '{query: $QUERY, ...$FILTERS}')
+- `format-1`: Simple query: /mem:search "authentication patterns"
+- `format-2`: With filters: /mem:search query="auth" category=code-solution limit=20
+- `format-3`: With tags: /mem:search query="api" tags=laravel,php
+- `extract`: STORE-AS($QUERY = {parse query from $RAW_INPUT, required})
+- `filters`: STORE-AS($FILTERS = {parse category?, limit?, offset?, tags? from $RAW_INPUT})
+- `defaults`: Defaults: limit=10, offset=0
+- `output`: STORE-AS($PARAMS = {query: $QUERY, ...$FILTERS})
 
 # Workflow step2
 STEP 2 - Execute Semantic Search
-## Examples
-- search: mcp__vector-memory__search_memories('STORE-GET($PARAMS)')
-- store: STORE-AS($RESULTS = 'search results array')
+- `search`: mcp__vector-memory__search_memories('STORE-GET($PARAMS)')
+- `store`: STORE-AS($RESULTS = search results array)
 
 # Workflow step3
 STEP 3 - Handle Empty Results
-## Examples
-- check: IF(STORE-GET($RESULTS) is empty) → THEN → [Display: "No memories found for: {query}" → Suggest: "Try broader search terms" → Suggest: "Remove category/tag filters" → Suggest: "Use /mem:list to see recent memories"] → END-IF
+- `check`: IF(STORE-GET($RESULTS) is empty) →
+  Display: "No memories found for: {query}" → Suggest: "Try broader search terms" → Suggest: "Remove category/tag filters" → Suggest: "Use /mem:list to see recent memories"
+→ END-IF
 
 # Workflow step4
 STEP 4 - Format and Display Results
-## Examples
-- header: Display: "--- Memory Search Results ---"
-- meta: Display: "Query: {query} | Found: {count} | Category: {category or all}"
-- list: FOREACH(memory in STORE-GET($RESULTS)) → [Display: "#{id} [{category}] (similarity: {score})" → Display: "  {content_preview} (first 100 chars)" → Display: "  Tags: {tags} | Accessed: {access_count}x"] → END-FOREACH
-- pagination: IF(more results available (total > limit + offset)) → THEN → [Display: "More results available. Use offset={next_offset} to see more"] → END-IF
+- `header`: Display: "--- Memory Search Results ---"
+- `meta`: Display: "Query: {query} | Found: {count} | Category: {category or all}"
+- `list`: FOREACH(memory in STORE-GET($RESULTS)) →
+  Display: "#{id} [{category}] (similarity: {score})" → Display: "  {content_preview} (first 100 chars)" → Display: "  Tags: {tags} | Accessed: {access_count}x"
+→ END-FOREACH
+- `pagination`: IF(more results available (total > limit + offset)) →
+  Display: "More results available. Use offset={next_offset} to see more"
+→ END-IF
 
 # Output format
 Result display format
-## Examples
 - --- Memory Search Results ---
 - Query: "auth patterns" | Found: 5 | Category: code-solution
 - #{id} [{category}] (similarity: 0.85)
@@ -61,7 +62,6 @@ Result display format
 
 # Similarity guide
 Similarity score interpretation
-## Examples
 - 0.90-1.00: Highly relevant, almost exact match
 - 0.75-0.89: Relevant, good semantic match
 - 0.50-0.74: Somewhat related, partial match
@@ -69,7 +69,6 @@ Similarity score interpretation
 
 # Filter examples
 Supported filter combinations
-## Examples
 - /mem:search "query" → simple search
 - /mem:search query="auth" category=bug-fix → filtered by category
 - /mem:search query="api" tags=laravel → filtered by tag

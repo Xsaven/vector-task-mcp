@@ -8,247 +8,135 @@ description: "Decompose large task into subtasks (each <=5-8h)"
 <id>task:decompose</id>
 <description>Decompose large task into subtasks (each <=5-8h)</description>
 </meta>
-<purpose>Decomposes large tasks (>5-8h estimate) into smaller, manageable subtasks. Each subtask MUST have estimate <=5-8 hours (GOLDEN RULE). Recursively flags subtasks exceeding 8h for further decomposition. Input: $ARGUMENTS = task_id. Requires mandatory user approval before creating subtasks.</purpose>
-<purpose>Aggressive task decomposition with MAXIMUM parallel agent orchestration. Deep multi-agent research, comprehensive codebase analysis, creates optimal subtasks meeting 5-8h golden rule. NEVER executes - only creates.</purpose>
+<execute>Decomposes large tasks (>5-8h estimate) into smaller, manageable subtasks. Each subtask MUST have estimate <=5-8 hours (GOLDEN RULE). Recursively flags subtasks exceeding 8h for further decomposition. Input: $ARGUMENTS = task_id. Requires mandatory user approval before creating subtasks.</execute>
+<provides>Task decomposition into subtasks. 2 parallel agents research (code + memory), plans logical execution order, creates subtasks. NEVER executes - only creates.</provides>
 
 # Iron Rules
-## Golden-rule-estimate (CRITICAL)
-Each subtask estimate MUST be <= 5-8 hours. This is the CORE PURPOSE.
-- why: Tasks >8h are too large for effective tracking, estimation accuracy, and focus
-- on_violation: Decompose further until ALL subtasks meet 5-8h. Flag for recursive /task:decompose.
+## Tool-call-first (CRITICAL)
+YOUR VERY FIRST RESPONSE MUST BE A TOOL CALL. No text before tools. No analysis. No thinking out loud. CALL mcp__vector-task__task_get IMMEDIATELY with $TASK_ID.
 
-## Max-subtasks-limit (CRITICAL)
-Maximum 10 subtasks per parent task. NEVER create more than 10 direct children.
-- why: Too many subtasks indicate insufficient grouping. Cognitive overload, tracking nightmare.
-- on_violation: Group related work into larger subtasks (each 5-8h), mark them [needs-decomposition] for recursive /task:decompose.
+## No-hallucination (CRITICAL)
+NEVER output results without ACTUALLY calling tools. You CANNOT know task status or content without REAL tool calls. Fake results = CRITICAL VIOLATION.
 
-## Parallel-agent-execution (CRITICAL)
-Launch INDEPENDENT research agents in PARALLEL (multiple Task calls in single response)
-- why: Maximizes research coverage, comprehensive decomposition context
-- on_violation: Group independent research, launch ALL simultaneously
+## No-verbose (CRITICAL)
+FORBIDDEN: <meta>, <synthesis>, <plan>, <analysis> tags. No long explanations before action. Brief status updates ONLY.
 
-## Multi-agent-research (CRITICAL)
-Use SPECIALIZED agents: ExploreMaster(code), DocumentationMaster(docs), VectorMaster(memory)
-- why: Each agent has domain expertise. Single agent misses critical decomposition context.
-- on_violation: Delegate to appropriate specialized agent
+## Show-progress (HIGH)
+ALWAYS show brief step status and results. User must see what is happening.
 
-## Create-only-no-execution (CRITICAL)
+## No-interpretation (CRITICAL)
+NEVER interpret task content or give generic responses. Task ID given = decompose it. Follow the workflow EXACTLY.
+
+## Auto-approve (HIGH)
+-y flag = auto-approve. Skip "Proceed?" questions, but STILL show progress.
+
+## Create-only (CRITICAL)
 This command ONLY creates subtasks. NEVER execute any subtask after creation.
-- why: Decomposition and execution are separate concerns. User decides via /task:next
-- on_violation: STOP immediately after subtask creation
+- **why**: Decomposition and execution are separate concerns. User decides what to execute next.
+- **on_violation**: STOP immediately after subtask creation. Return control to user.
+
+## Parent-id-required (CRITICAL)
+ALL created subtasks MUST have parent_id = $TASK_ID. IRON LAW: When working with task X, EVERY new task created MUST be a child of X. No orphan tasks. No exceptions. Verify parent_id = $TASK_ID in EVERY task_create/task_create_bulk call before execution.
+- **why**: Hierarchy integrity. Orphan tasks break traceability, workflow, and task relationships. Task X work = Task X children only.
+- **on_violation**: ABORT if parent_id missing or != $TASK_ID. Double-check EVERY task_create call.
 
 ## Mandatory-user-approval (CRITICAL)
-MUST get explicit user YES/APPROVE/CONFIRM before creating subtasks. EXCEPTION: If $HAS_Y_FLAG is true, auto-approve decomposition (skip user confirmation prompt).
-- why: User must validate decomposition strategy before committing. Flag -y enables automated/scripted execution.
-- on_violation: Present subtask list and wait for explicit confirmation (unless $HAS_Y_FLAG is true)
+EVERY operation MUST have explicit user approval BEFORE execution. Present plan → WAIT for approval → Execute. NO auto-execution. EXCEPTION: If $HAS_Y_FLAG is true, auto-approve.
+- **why**: User maintains control. No surprises. Flag -y enables automated execution.
+- **on_violation**: STOP. Wait for explicit user approval (unless $HAS_Y_FLAG is true).
 
-## Fetch-parent-first (CRITICAL)
-MUST fetch parent task via task_get BEFORE any research
-- why: Cannot decompose without full understanding of parent scope
-- on_violation: Execute task_get first, analyze completely
+## Order-mandatory (CRITICAL)
+EVERY subtask MUST have explicit order field set. Sequential: 1, 2, 3. Parallel-safe: same order.
+- **why**: Order defines execution priority. Missing order = ambiguous sequence = blocked user.
+- **on_violation**: Set order parameter in EVERY task_create call. Never omit.
 
-## Correct-parent-id (CRITICAL)
-MUST set parent_id = task_id for ALL created subtasks
-- why: Hierarchy integrity requires correct parent-child relationships
-- on_violation: Verify parent_id in every task_create
+## Sequence-analysis (CRITICAL)
+When creating 2+ subtasks: STOP and THINK about optimal sequence. Consider: dependencies, data flow, setup requirements, parallel opportunities.
+- **why**: Wrong sequence wastes time. User executes in order - if task 3 needs output from task 5, user is blocked.
+- **on_violation**: Use SequentialThinking to analyze dependencies. Reorder before creation.
 
-## Exclude-brain-directory (CRITICAL)
-NEVER analyze .brain/ when decomposing code tasks
-- why: Brain system internals are not project code
-- on_violation: Skip .brain/ in all exploration
+## Logical-order (HIGH)
+Subtasks MUST be in logical execution order. Dependencies first, dependents after.
+- **why**: Prevents blocked work. User can execute subtasks sequentially without dependency issues.
+- **on_violation**: Reorder subtasks. Use SequentialThinking for complex dependencies.
+
+## Exclude-brain-directory (HIGH)
+NEVER analyze .brain/ when decomposing code tasks.
+- **why**: Brain system internals are not project code.
+- **on_violation**: Skip .brain/ in all exploration.
 
 
 # Input
-STORE-AS($RAW_INPUT = '$ARGUMENTS')
-STORE-AS($TASK_ID = '{numeric task ID extracted from $RAW_INPUT}')
+STORE-AS($RAW_INPUT = $ARGUMENTS)
+STORE-AS($HAS_Y_FLAG = {true if $RAW_INPUT contains "-y" or "--yes"})
+STORE-AS($CLEAN_ARGS = {$RAW_INPUT with flags removed})
+STORE-AS($TASK_ID = {numeric ID extracted from $CLEAN_ARGS})
 
-# Phase0 parse
-GOAL(Validate captured input from $RAW_INPUT)
-## Examples
-- STORE-AS($HAS_Y_FLAG = '{true if $RAW_INPUT contains "-y" or "--yes"}')
-- 
-STEP 1 - Validate:
-(VALIDATE($TASK_ID is numeric) → FAILS → [Request valid task_id from user] → END-VALIDATE)
+# Workflow
+GOAL(Decompose task into subtasks: load → research → plan → approve → create)
+- `1`: OUTPUT(=== TASK:DECOMPOSE === Loading task #$TASK_ID...)
+- `2`: mcp__vector-task__task_get('{task_id: $TASK_ID}') → STORE-AS($TASK)
+- `3`: IF(not found) → ABORT "Task #$TASK_ID not found"
+- `4`: mcp__vector-task__task_list('{parent_id: $TASK_ID, limit: 50}') → STORE-AS($EXISTING_SUBTASKS)
+- `5`: IF(EXISTING_SUBTASKS.count > 0 AND NOT $HAS_Y_FLAG) →
+  Task has {count} existing subtasks.
+  Ask: "(1) Add more, (2) Replace all, (3) Abort"
+  WAIT for user choice
+→ END-IF
+- `6`: OUTPUT(Task: #{$TASK.id} - {$TASK.title} Status: {$TASK.status} | Priority: {$TASK.priority} Existing subtasks: {count})
+- `7`: OUTPUT( ## RESEARCH (2 agents parallel))
+- `8`: Launch 2 agents in PARALLEL (single message with multiple Task calls):
+- `9`: [DELEGATE] @agent-explore: 'DECOMPOSITION RESEARCH for task #{$TASK.id}: "{$TASK.title}". Find: files, components, dependencies, natural split boundaries. EXCLUDE: .brain/. OUTPUT: {files:[], components:[], boundaries:[]}' Task(@agent-vector-master, 'TASK →'."\\n"
+    .'  Memory search for: task decomposition patterns, similar implementations, past estimates'."\\n"
+    .'→ END-TASK', 'STORE-AS($MEMORY_INSIGHTS)')
+- `10`: STORE-AS($CODE_INSIGHTS = {from explore agent})
+- `11`: OUTPUT( ## PLANNING)
+- `12`: mcp__sequential-thinking__sequentialthinking('{'."\\n"
+    .'                thought: "Synthesizing research: CODE_INSIGHTS + MEMORY_INSIGHTS. Identifying: logical boundaries, component coupling, data dependencies, effort distribution.",'."\\n"
+    .'                thoughtNumber: 1,'."\\n"
+    .'                totalThoughts: 3,'."\\n"
+    .'                nextThoughtNeeded: true'."\\n"
+    .'            }')
+- `13`: Create subtask plan: group by component, order by dependency, estimate each
+- `14`: IF(2+ subtasks) →
+  STOP: Analyze optimal execution sequence
+  Consider: What depends on what? What can run parallel? What needs setup first?
+  Assign order: 1=first, 2=second, same order=parallel-safe
+→ END-IF
+- `15`: STORE-AS($SUBTASK_PLAN = [{title, content, estimate, priority, order}])
+- `16`: IF(3+ subtasks) →
+  mcp__sequential-thinking__sequentialthinking('{thought: "Analyze dependencies and optimal order for subtasks", thoughtNumber: 1, totalThoughts: 3, nextThoughtNeeded: true}')
+→ END-IF
+- `17`: OUTPUT( ## PLAN)
+- `18`: Show table: | Order | Subtask | Est | Priority | Depends |
+- `19`: IF($HAS_Y_FLAG) → OUTPUT(Auto-approved (-y flag))
+- `20`: IF(NOT $HAS_Y_FLAG) →
+  Ask: "Create {count} subtasks? (yes/no/modify)"
+  WAIT for approval
+→ END-IF
+- `21`: OUTPUT( ## CREATING)
+- `22`: mcp__vector-task__task_create_bulk('{tasks: [{title, content, parent_id: $TASK_ID, priority, estimate, order, tags: [...$TASK.tags, "decomposed"]}]}')
+- `23`: mcp__vector-task__task_list('{parent_id: $TASK_ID}') → verify created
+- `24`: mcp__vector-memory__store_memory('{content: "DECOMPOSED|#{$TASK.id}|subtasks:{count}", category: "tool-usage", tags: ["task-decomposition"]}')
+- `25`: OUTPUT( === DECOMPOSITION COMPLETE === Created: {count} subtasks Next: /task:list --parent={$TASK_ID})
+- `26`: STOP: Do NOT execute subtasks. Return control to user.
 
-# Phase1 fetch
-GOAL(Fetch and fully understand parent task)
-## Examples
-- 
-STEP 1 - Fetch parent task:
-(mcp__vector-task__task_get('{task_id: $TASK_ID}') + VALIDATE(Task exists and has content) → FAILS → [Report: Task not found] → END-VALIDATE + STORE-AS($PARENT_TASK = '{id, title, content, priority, tags, status, estimate}'))
-
-- 
-STEP 2 - Check existing subtasks:
-(mcp__vector-task__task_list('{parent_id: $TASK_ID, limit: 50}') + IF(existing subtasks > 0) → THEN → [Ask: "Task has {count} subtasks. (1) Add more, (2) Replace all, (3) Abort"] → END-IF + STORE-AS($EXISTING_SUBTASKS = '[{id, title, status}]'))
-
-- 
-STEP 3 - Analyze parent task type:
-(Determine task type: code | architecture | documentation | testing | infrastructure + Identify domain: backend | frontend | database | api | devops + Assess complexity: simple | moderate | complex | very-complex + STORE-AS($TASK_TYPE = '{type, domain, complexity}'))
-
-# Phase2 parallel research
-GOAL(PARALLEL: Deep memory research + documentation analysis)
-## Examples
-- 
-BATCH 1 - Memory & Docs (LAUNCH IN PARALLEL):
-(Task(@agent-vector-master, 'TASK → [(DEEP MEMORY RESEARCH for decomposition of: $PARENT_TASK.title + Multi-probe search strategy: + Probe 1: "task decomposition {domain} patterns strategies" (tool-usage) + Probe 2: "$PARENT_TASK.title implementation breakdown structure" (architecture) + Probe 3: "{domain} subtask estimation accuracy lessons" (learning) + Probe 4: "similar task decomposition mistakes pitfalls" (bug-fix) + Probe 5: "{domain} code structure component boundaries" (code-solution) + EXTRACT: decomposition patterns, common structures, past estimates, warnings + OUTPUT: actionable decomposition insights)] → END-TASK', 'OUTPUT({memories_found:N,patterns:[],estimates_accuracy:[],warnings:[]})', 'STORE-AS($MEMORY_INSIGHTS)') + Task(@agent-documentation-master, 'TASK → [(DOCUMENTATION RESEARCH for task: $PARENT_TASK.title + Search brain docs for: {domain}, {related_concepts} + Find: API specs, architecture docs, implementation guides + EXTRACT: requirements, constraints, patterns, dependencies + OUTPUT: documentation-based decomposition guidance)] → END-TASK', 'OUTPUT({docs_found:N,requirements:[],patterns:[],constraints:[]})', 'STORE-AS($DOC_INSIGHTS)'))
-
-- NOTE: VectorMaster + DocumentationMaster run SIMULTANEOUSLY
-
-# Phase3 parallel code
-GOAL(PARALLEL: Multi-aspect codebase analysis for code tasks)
-## Examples
-- CONDITIONAL: If $TASK_TYPE.type === "code":
-- 
-BATCH 2 - Codebase Analysis (LAUNCH IN PARALLEL):
-(Task(@agent-explore, 'TASK → [(COMPONENT ANALYSIS for: $PARENT_TASK.title + Thoroughness: very thorough + ANALYZE: affected files, classes, methods, namespaces + IDENTIFY: component boundaries, natural split points + EXTRACT: {files:[],classes:[],methods:[],boundaries:[]} + FOCUS ON: where code changes will be needed)] → END-TASK', 'OUTPUT({files:N,components:[],boundaries:[],split_points:[]})', 'STORE-AS($CODE_COMPONENTS)') + Task(@agent-explore, 'TASK → [(DEPENDENCY ANALYSIS for: $PARENT_TASK.title + Thoroughness: thorough + ANALYZE: imports, dependencies, coupling between modules + IDENTIFY: dependency chains, circular deps, external deps + EXTRACT: {internal_deps:[],external_deps:[],coupling_level:str} + FOCUS ON: what must be changed together vs independently)] → END-TASK', 'OUTPUT({dependencies:[],coupling:str,independent_areas:[]})', 'STORE-AS($CODE_DEPENDENCIES)') + Task(@agent-explore, 'TASK → [(TEST ANALYSIS for: $PARENT_TASK.title + Thoroughness: medium + ANALYZE: existing tests, test patterns, coverage gaps + IDENTIFY: what tests need updating/creating + EXTRACT: {existing_tests:[],patterns:[],gaps:[]} + FOCUS ON: test requirements for subtasks)] → END-TASK', 'OUTPUT({tests:N,coverage_gaps:[],test_requirements:[]})', 'STORE-AS($CODE_TESTS)'))
-
-- NOTE: All 3 ExploreMaster agents run SIMULTANEOUSLY
-
-# Phase4 parallel additional
-GOAL(PARALLEL: Additional targeted research based on task type)
-## Examples
-- 
-BATCH 3 - Additional Research (LAUNCH IN PARALLEL):
-(Task(@agent-explore, 'TASK → [(COMPLEXITY ASSESSMENT for: $PARENT_TASK.title + Thoroughness: quick + ANALYZE: cyclomatic complexity, lines of code, nesting depth + IDENTIFY: complex hotspots, refactoring candidates + EXTRACT: {complexity_score:N,hotspots:[],risk_areas:[]})] → END-TASK', 'OUTPUT({complexity:str,hotspots:[],risk_level:str})', 'STORE-AS($COMPLEXITY_ANALYSIS)') + IF($TASK_TYPE.domain === "api" OR $TASK_TYPE.domain === "backend") → THEN → [Task(@agent-explore, 'TASK → [(API/ROUTE ANALYSIS for: $PARENT_TASK.title + Thoroughness: medium + ANALYZE: affected routes, controllers, middleware + IDENTIFY: API contract changes, breaking changes + EXTRACT: {routes:[],controllers:[],breaking_changes:[]})] → END-TASK', 'OUTPUT({routes:N,changes:[],breaking:bool})', 'STORE-AS($API_ANALYSIS)')] → END-IF)
-
-- 
-PARALLEL memory searches for specific aspects:
-(mcp__vector-memory__search_memories('{query: "$PARENT_TASK.domain estimation accuracy", limit: 3, category: "learning"}') + mcp__vector-memory__search_memories('{query: "$PARENT_TASK.title similar implementation", limit: 3, category: "code-solution"}') + mcp__vector-memory__search_memories('{query: "$PARENT_TASK.domain common mistakes", limit: 3, category: "bug-fix"}'))
-
-# Phase5 synthesis
-GOAL(Synthesize ALL research into decomposition plan)
-## Examples
-- 
-COMBINE all stored research:
-(STORE-GET($PARENT_TASK) + STORE-GET($EXISTING_SUBTASKS) + STORE-GET($TASK_TYPE) + STORE-GET($MEMORY_INSIGHTS) + STORE-GET($DOC_INSIGHTS) + STORE-GET($CODE_COMPONENTS) + STORE-GET($CODE_DEPENDENCIES) + STORE-GET($CODE_TESTS) + STORE-GET($COMPLEXITY_ANALYSIS) + STORE-GET($API_ANALYSIS))
-
-- 
-SEQUENTIAL THINKING for decomposition strategy:
-(mcp__sequential-thinking__sequentialthinking('{'."\\n"
-    .'                    thought: "Analyzing comprehensive research from 5+ parallel agents for optimal decomposition. Parent: $PARENT_TASK.title. Golden rule: <=5-8h per subtask.",'."\\n"
-    .'                    thoughtNumber: 1,'."\\n"
-    .'                    totalThoughts: 6,'."\\n"
-    .'                    nextThoughtNeeded: true'."\\n"
-    .'                }'))
-
-- 
-DECOMPOSITION ANALYSIS:
-(Step 1: Identify natural task boundaries from CODE_COMPONENTS + Step 2: Map dependencies between potential subtasks from CODE_DEPENDENCIES + Step 3: Group related changes (files that change together) + Step 4: Estimate effort per group (MUST be <=5-8h) + Step 5: Determine optimal execution order + Step 6: Flag any subtask >8h for recursive decomposition + Step 7: COUNT subtasks - if >10, GROUP into larger chunks (5-8h each) with [needs-decomposition] tag)
-
-- STORE-AS($DECOMPOSITION_PLAN = '[{title, scope, files, estimate, dependencies, order}]')
-
-# Phase6 specification
-GOAL(Create detailed subtask specifications)
-## Examples
-- 
-For EACH subtask in DECOMPOSITION_PLAN:
-(FOREACH(subtask in $DECOMPOSITION_PLAN) → [title: Concise, action-oriented (max 6 words) → content: Scope, requirements, acceptance criteria, affected files → estimate: hours (MUST be <=5-8h) → priority: inherit from parent or adjust → tags: inherit parent + subtask-specific + [decomposed] → IF(estimate > 8) → THEN → [Add tag [needs-decomposition], FLAG for recursive] → END-IF] → END-FOREACH)
-
-- 
-DECOMPOSITION STRATEGIES to apply:
-(LAYERED: Split by layer (API → service → repository → tests) + FEATURE: Split by feature (auth → validation → core → UI) + PHASE: Split by phase (research → implement → test → document) + DEPENDENCY: Independent first, dependent after + RISK: High-risk isolated for focused testing)
-
-- STORE-AS($SUBTASK_SPECS = '[{title, content, estimate, priority, tags, needs_decomposition}]')
-
-# Phase7 approval
-GOAL(Present subtasks for user approval (MANDATORY GATE))
-## Examples
-- 
-DISPLAY decomposition summary:
-(═══ DECOMPOSITION SUMMARY ═══ + Parent Task: $PARENT_TASK.title (ID: $TASK_ID) + Parent Estimate: $PARENT_TASK.estimate + Existing Subtasks: {count} + ═══════════════════════════════)
-
-- 
-FORMAT subtask list as table:
-(# | Subtask Title | Estimate | Priority | Dependencies | Files | Flags + --|--------------|----------|----------|--------------|-------|------ + 1 | Setup base structure | 4h | high | - | 3 | - + 2 | Implement core logic | 6h | high | #1 | 5 | - + 3 | Add validation | 8h | medium | #2 | 4 | [!] NEEDS DECOMPOSE + ... (all subtasks))
-
-- 
-RESEARCH SUMMARY:
-(Agents used: {count} (VectorMaster, DocMaster, 3x ExploreMaster) + Memory insights: {count} patterns found + Components analyzed: {files} files, {classes} classes + Dependencies mapped: {count} relationships + Total estimate: {sum}h (parent was: {parent_estimate}h))
-
-- 
-PROMPT:
-(Ask: "Create {count} subtasks? (yes/no/modify)" + VALIDATE(User response is YES, APPROVE, CONFIRM) → FAILS → [Wait for explicit approval] → END-VALIDATE)
-
-# Phase8 create
-GOAL(Create subtasks in vector task system after approval)
-## Examples
-- 
-CREATE subtasks via bulk:
-(mcp__vector-task__task_create_bulk('{tasks: $SUBTASK_SPECS.map(s => ({'."\\n"
-    .'                    title: s.title,'."\\n"
-    .'                    content: s.content,'."\\n"
-    .'                    parent_id: $TASK_ID,'."\\n"
-    .'                    priority: s.priority,'."\\n"
-    .'                    tags: s.tags'."\\n"
-    .'                }))}') + STORE-AS($CREATED_SUBTASKS = '[{id, title, estimate}]'))
-
-- 
-VERIFY creation:
-(mcp__vector-task__task_list('{parent_id: $TASK_ID}') + Confirm: {count} subtasks created)
-
-# Phase9 complete
-GOAL(Report completion, store insight, STOP)
-## Examples
-- 
-STORE decomposition insight:
-(mcp__vector-memory__store_memory('{'."\\n"
-    .'                    content: "DECOMPOSED|$PARENT_TASK.title|subtasks:{count}|strategy:{approach}|estimates:{breakdown}|components:{from CODE_COMPONENTS}",'."\\n"
-    .'                    category: "tool-usage",'."\\n"
-    .'                    tags: ["task-decomposition", "$TASK_TYPE.domain", "workflow-pattern"]'."\\n"
-    .'                }'))
-
-- 
-REPORT:
-(═══ DECOMPOSITION COMPLETE ═══ + Created: {count} subtasks for task #{$TASK_ID} + Total estimate: {sum}h + Agents used: {agent_count} (parallel execution) + ═══════════════════════════════)
-
-- 
-RECURSIVE DECOMPOSITION (if any):
-(IF(any subtask.needs_decomposition) → THEN → [[!] SUBTASKS NEED FURTHER DECOMPOSITION: → FOREACH(subtask in $CREATED_SUBTASKS where needs_decomposition) → [  - /task:decompose {subtask.id} (estimate: {subtask.estimate}h)] → END-FOREACH] → END-IF)
-
-- 
-NEXT STEPS:
-(  1. /task:decompose {id} - for subtasks >8h +   2. /task:list --parent=$TASK_ID - view hierarchy +   3. /task:next - start first subtask)
-
-- STOP: Do NOT execute any subtask. Return control to user.
-
-# Subtask format
-Required subtask structure
-## Examples
-- Max 6 words, action-oriented
-- Scope, requirements, acceptance criteria, files
-- MUST be <=5-8h (GOLDEN RULE)
-- Inherit or adjust: critical|high|medium|low
-- Inherit parent + subtask-specific + [decomposed]
-
-# Estimation guide
-Subtask estimation (GOLDEN RULE: <=5-8h)
-## Examples
-- 1-2h: Config, single file, simple edit
-- 2-4h: Small feature, multi-file, simple tests
-- 4-6h: Moderate feature, refactoring
-- 6-8h: Complex feature, architectural piece
-- >8h: VIOLATION - decompose further!
-
-# Grouping strategy
-When initial decomposition yields >10 subtasks, GROUP into larger chunks
-## Examples
-- 
-TRIGGER: count($DECOMPOSITION_PLAN) > 10
-(Step 1: Identify logical clusters (by feature, layer, or dependency chain) + Step 2: Merge related subtasks into parent chunks (5-8h each) + Step 3: Each chunk gets [needs-decomposition] tag + Step 4: Final count MUST be ≤10 subtasks + Step 5: Recommend /task:decompose for each chunk after creation)
-
-- 
-EXAMPLE:
-(15 subtasks → group into 6-8 chunks: +   - "API Layer" (auth + validation + routes) → 7h [needs-decomposition] +   - "Service Layer" (logic + handlers) → 8h [needs-decomposition] +   - "Data Layer" (models + migrations + seeders) → 6h [needs-decomposition] +   - "Testing" (unit + integration) → 7h [needs-decomposition])
-
-# Parallel pattern
-Parallel agent execution pattern
-## Examples
-- WRONG: Sequential agent calls → slow, incomplete
-- RIGHT: Multiple Task() calls in single response
-- All agents run SIMULTANEOUSLY
-- Synthesize ALL results before decomposition
-
-# Directive
-PARALLEL agents! DEEP research! 5-8h GOLDEN RULE! MAX 10 subtasks! User approval! STOP after create!
+# Error handling
+Graceful error recovery
+- `1`: IF(task not found) →
+  Report error
+  Suggest task_list
+  ABORT
+→ END-IF
+- `2`: IF(agent fails) →
+  Log error
+  Continue with available data
+  Report partial results
+→ END-IF
+- `3`: IF(user rejects) →
+  Accept modifications
+  Rebuild plan
+  Re-submit for approval
+→ END-IF
 
 </command>

@@ -6,6 +6,7 @@ Provides SQLite-vec based task storage with vector embeddings for semantic task 
 Handles database initialization, task CRUD operations, and vector search.
 """
 
+import asyncio
 import sqlite3
 import sqlite_vec
 import json
@@ -22,7 +23,7 @@ from .security import (
     generate_content_hash, validate_file_path, validate_parent_id,
     validate_bulk_tasks_params, validate_bulk_task_ids
 )
-from .embeddings import get_embedding_model
+from .embeddings import get_embedding_model, EmbeddingModel
 
 
 class TaskStore:
@@ -41,12 +42,93 @@ class TaskStore:
         self.embedding_model_name = embedding_model_name or Config.EMBEDDING_MODEL
         self.timezone = timezone or "UTC"
 
+        # Lazy-loaded embedding model (async initialization)
+        self._embedding_model: EmbeddingModel | None = None
+        self._model_loading_task: asyncio.Task | None = None
+
+        # Lazy-loaded database initialization (async)
+        self._db_initialized: bool = False
+        self._db_init_task: asyncio.Task | None = None
+
         # Validate database path
         validate_file_path(self.db_path)
 
-        # Initialize database and embedding model
-        self._init_database()
-        self.embedding_model = get_embedding_model(self.embedding_model_name)
+    async def _ensure_db_initialized_async(self) -> None:
+        """
+        Ensure database is initialized with async lazy loading.
+
+        Creates asyncio.Task on first call for background initialization.
+        All concurrent callers await the SAME task (no duplicate initialization).
+        """
+        if self._db_initialized:
+            return
+
+        if self._db_init_task is None:
+            self._db_init_task = asyncio.create_task(
+                asyncio.to_thread(self._init_database)
+            )
+
+        await self._db_init_task
+        self._db_initialized = True
+
+    def _ensure_db_initialized_sync(self) -> None:
+        """
+        Ensure database is initialized with synchronous loading (fallback for non-async contexts).
+
+        Blocks if database not yet initialized (synchronous fallback).
+        """
+        if not self._db_initialized:
+            self._init_database()
+            self._db_initialized = True
+
+    async def get_embedding_model_async(self) -> EmbeddingModel:
+        """
+        Get embedding model with async lazy loading.
+
+        Returns cached model if already loaded.
+        Creates asyncio.Task on first call for background loading.
+        All concurrent callers await the SAME task (no duplicate loading).
+
+        Returns:
+            EmbeddingModel instance
+        """
+        if self._embedding_model is not None:
+            return self._embedding_model
+
+        if self._model_loading_task is None:
+            self._model_loading_task = asyncio.create_task(
+                asyncio.to_thread(get_embedding_model, self.embedding_model_name)
+            )
+
+        self._embedding_model = await self._model_loading_task
+        return self._embedding_model
+
+    def _get_embedding_model_sync(self) -> EmbeddingModel:
+        """
+        Get embedding model with synchronous loading (fallback for non-async contexts).
+
+        Returns cached model if already loaded.
+        Blocks if model not yet loaded (synchronous fallback).
+
+        Returns:
+            EmbeddingModel instance
+        """
+        if self._embedding_model is None:
+            self._embedding_model = get_embedding_model(self.embedding_model_name)
+        return self._embedding_model
+
+    @property
+    def embedding_model(self) -> EmbeddingModel:
+        """
+        Property for backwards compatibility.
+
+        Provides synchronous access to embedding model.
+        Use get_embedding_model_async() for async contexts.
+
+        Returns:
+            EmbeddingModel instance
+        """
+        return self._get_embedding_model_sync()
 
     def _init_database(self) -> None:
         """Initialize sqlite-vec database with required tables."""
@@ -356,7 +438,18 @@ class TaskStore:
 
         return history
 
-    def create_task(self, title: str, content: str, parent_id: Optional[int] = None, comment: Optional[str] = None, priority: Optional[str] = None, tags: Optional[List[str]] = None, estimate: Optional[float] = None, order: Optional[int] = None) -> Dict[str, Any]:
+    def create_task(
+        self,
+        title: str,
+        content: str,
+        parent_id: Optional[int] = None,
+        comment: Optional[str] = None,
+        priority: Optional[str] = None,
+        tags: Optional[List[str]] = None,
+        estimate: Optional[float] = None,
+        order: Optional[int] = None,
+        embedding_model: Optional[EmbeddingModel] = None
+    ) -> Dict[str, Any]:
         """
         Create a new task with vector embedding.
 
@@ -369,10 +462,14 @@ class TaskStore:
             tags: Optional list of tags for categorization
             estimate: Optional time estimate in hours
             order: Optional order position (auto-assigned if None, shifts siblings if provided)
+            embedding_model: Optional pre-loaded embedding model (for async callers)
 
         Returns:
             Dict with operation result and task data
         """
+        self._ensure_db_initialized_sync()
+        # Use provided model or fall back to sync loading
+        model = embedding_model or self._get_embedding_model_sync()
         # Validate parameters (including comment, priority, tags, and order)
         (title, content, _, validated_parent_id, validated_comment, validated_priority,
          validated_tags, validated_order) = validate_task_params(
@@ -403,7 +500,7 @@ class TaskStore:
                 }
 
             # Generate embedding from title + content
-            embedding = self.embedding_model.encode_single(combined)
+            embedding = model.encode_single(combined)
 
             # Calculate or validate order
             if validated_order is None:
@@ -464,7 +561,11 @@ class TaskStore:
         finally:
             conn.close()
 
-    def create_tasks_bulk(self, tasks: List[dict]) -> Dict[str, Any]:
+    def create_tasks_bulk(
+        self,
+        tasks: List[dict],
+        embedding_model: Optional[EmbeddingModel] = None
+    ) -> Dict[str, Any]:
         """
         Create multiple tasks in a single transaction with batch embedding generation.
 
@@ -474,6 +575,7 @@ class TaskStore:
                 - content: Task content (required)
                 - parent_id: Optional parent task ID
                 - comment: Optional comment/note
+            embedding_model: Optional pre-loaded embedding model (for async callers)
 
         Returns:
             Dict with operation result:
@@ -487,6 +589,9 @@ class TaskStore:
             SecurityError: If validation fails
             RuntimeError: If database operation fails
         """
+        self._ensure_db_initialized_sync()
+        # Use provided model or fall back to sync loading
+        model = embedding_model or self._get_embedding_model_sync()
         # Validate parameters
         validated_tasks, _ = validate_bulk_tasks_params(tasks, Config.MAX_BULK_CREATE)
 
@@ -556,7 +661,7 @@ class TaskStore:
                 }
 
             # Batch generate embeddings for all valid tasks
-            embeddings = self.embedding_model.encode(combined_texts)
+            embeddings = model.encode(combined_texts)
 
             # Second pass: insert tasks and vectors in single transaction
             for idx, metadata in enumerate(task_metadata):
@@ -616,17 +721,24 @@ class TaskStore:
         finally:
             conn.close()
 
-    def update_task(self, task_id: int, **kwargs) -> Dict[str, Any]:
+    def update_task(
+        self,
+        task_id: int,
+        embedding_model: Optional[EmbeddingModel] = None,
+        **kwargs
+    ) -> Dict[str, Any]:
         """
         Update an existing task.
 
         Args:
             task_id: Task ID to update
+            embedding_model: Optional pre-loaded embedding model (for async callers, only used if title/content/tags change)
             **kwargs: Fields to update (title, content, status, parent_id, start_at, finish_at)
 
         Returns:
             Dict with updated task data
         """
+        self._ensure_db_initialized_sync()
         # Validate parameters
         task_id, validated_kwargs = validate_task_update_params(task_id, **kwargs)
 
@@ -839,8 +951,9 @@ class TaskStore:
                 update_fields.append("content_hash = ?")
                 update_values.append(new_hash)
 
-                # Generate new embedding
-                embedding = self.embedding_model.encode_single(combined)
+                # Generate new embedding (use provided model or fall back to sync loading)
+                model = embedding_model or self._get_embedding_model_sync()
+                embedding = model.encode_single(combined)
                 embedding_blob = sqlite_vec.serialize_float32(embedding)
 
                 # Update vector
@@ -914,6 +1027,7 @@ class TaskStore:
         Returns:
             True if deleted, False if not found
         """
+        self._ensure_db_initialized_sync()
         try:
             conn = self._get_connection()
         except Exception as e:
@@ -970,6 +1084,7 @@ class TaskStore:
             SecurityError: If validation fails
             RuntimeError: If database operation fails
         """
+        self._ensure_db_initialized_sync()
         # Validate and deduplicate task IDs
         deduplicated_task_ids = validate_bulk_task_ids(task_ids, Config.MAX_BULK_DELETE)
 
@@ -1045,6 +1160,7 @@ class TaskStore:
         Returns:
             Task object or None if not found
         """
+        self._ensure_db_initialized_sync()
         try:
             conn = self._get_connection()
         except Exception as e:
@@ -1079,6 +1195,7 @@ class TaskStore:
         Returns:
             List of subtask IDs ordered by order ASC, created_at ASC
         """
+        self._ensure_db_initialized_sync()
         try:
             conn = self._get_connection()
         except Exception as e:
@@ -1114,6 +1231,7 @@ class TaskStore:
         Returns:
             Task object or None if no suitable child task found
         """
+        self._ensure_db_initialized_sync()
         try:
             conn = self._get_connection()
         except Exception as e:
@@ -1182,6 +1300,7 @@ class TaskStore:
         Returns:
             Task object or None if no tasks exist
         """
+        self._ensure_db_initialized_sync()
         try:
             conn = self._get_connection()
         except Exception as e:
@@ -1216,6 +1335,7 @@ class TaskStore:
         Returns:
             Task object or None if no suitable task found
         """
+        self._ensure_db_initialized_sync()
         try:
             conn = self._get_connection()
         except Exception as e:
@@ -1285,7 +1405,8 @@ class TaskStore:
         status: str = None,
         parent_id: int = None,
         tags: List[str] = None,
-        ids: List[int] = None
+        ids: List[int] = None,
+        embedding_model: Optional[EmbeddingModel] = None
     ) -> Tuple[List[Task], int]:
         """
         Search tasks using vector similarity or list all with filters.
@@ -1298,10 +1419,12 @@ class TaskStore:
             parent_id: Optional parent_id filter
             tags: Optional list of tags to filter by (OR logic - matches if ANY tag present)
             ids: Optional list of task IDs to filter by (AND logic with other filters)
+            embedding_model: Optional pre-loaded embedding model (for async callers, only used if query provided)
 
         Returns:
             Tuple of (List of Task objects, total count matching filters)
         """
+        self._ensure_db_initialized_sync()
         # Validate parameters
         if limit is not None:
             limit = min(max(1, limit), Config.MAX_MEMORIES_PER_SEARCH)
@@ -1356,7 +1479,9 @@ class TaskStore:
                 query = sanitize_input(query)
 
                 # Generate query embedding
-                query_embedding = self.embedding_model.encode_single(query)
+                # Use provided model or fall back to sync loading (only if query provided)
+                model = embedding_model or self._get_embedding_model_sync()
+                query_embedding = model.encode_single(query)
                 query_blob = sqlite_vec.serialize_float32(query_embedding)
 
                 # Build search query
@@ -1487,6 +1612,7 @@ class TaskStore:
         Returns:
             List[str]: Sorted list of unique tags
         """
+        self._ensure_db_initialized_sync()
         try:
             conn = self._get_connection()
         except Exception as e:
@@ -1550,6 +1676,7 @@ class TaskStore:
         Returns:
             TaskStats object with comprehensive statistics
         """
+        self._ensure_db_initialized_sync()
         try:
             conn = self._get_connection()
         except Exception as e:
