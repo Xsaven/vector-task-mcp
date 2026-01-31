@@ -211,27 +211,30 @@ class TaskStore:
                 )
             """)
 
-            # Create indexes for performance
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_task_status ON tasks(status)")
+            # Remove deprecated indexes (covered by composite indexes)
+            conn.execute("DROP INDEX IF EXISTS idx_task_status")  # covered by idx_task_status_parent
+            conn.execute("DROP INDEX IF EXISTS idx_task_parent")  # covered by idx_task_parent_order
+
+            # Create indexes for performance (composite indexes cover single-column queries)
             conn.execute("CREATE INDEX IF NOT EXISTS idx_task_created ON tasks(created_at)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_task_parent ON tasks(parent_id)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_task_hash ON tasks(content_hash)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_task_priority ON tasks(status, priority, created_at)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_task_tags ON tasks(tags)")
             conn.execute('CREATE INDEX IF NOT EXISTS idx_task_parent_order ON tasks(parent_id, "order")')
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_time_log_task_id ON task_time_log(task_id)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_time_log_incomplete ON task_time_log(task_id) WHERE finish_at IS NULL")
-
-            # Additional indexes for CRM filtering performance
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_task_status_parent ON tasks(status, parent_id)")
+            conn.execute('CREATE INDEX IF NOT EXISTS idx_task_order ON tasks("order")')
             conn.execute("CREATE INDEX IF NOT EXISTS idx_task_start_at ON tasks(start_at)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_task_finish_at ON tasks(finish_at)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_task_estimate ON tasks(estimate)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_task_status_parent ON tasks(status, parent_id)")
-            conn.execute('CREATE INDEX IF NOT EXISTS idx_task_order ON tasks("order")')
             conn.execute("CREATE INDEX IF NOT EXISTS idx_task_time_spent ON tasks(time_spent)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_time_log_task_id ON task_time_log(task_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_time_log_incomplete ON task_time_log(task_id) WHERE finish_at IS NULL")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_time_log_start_at ON task_time_log(start_at)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_time_log_finish_at ON task_time_log(finish_at)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_time_log_finish_status ON task_time_log(finish_status)")
+
+            # Update query planner statistics
+            conn.execute("ANALYZE")
 
             conn.commit()
 
