@@ -780,6 +780,40 @@ class TaskStore:
                     "message": f"Task {task_id} not found"
                 }
 
+            # Validate: cannot set finish status if has unfinished children
+            if 'status' in validated_kwargs:
+                new_status = validated_kwargs['status']
+                finish_statuses = TaskStatus.finish_statuses()
+
+                if new_status in finish_statuses:
+                    # Check for unfinished children (not in finish_statuses and not canceled)
+                    allowed_child_statuses = finish_statuses + ('canceled',)
+                    placeholders = ','.join('?' * len(allowed_child_statuses))
+
+                    unfinished_children = conn.execute(f'''
+                        SELECT id, title, status FROM tasks
+                        WHERE parent_id = ? AND status NOT IN ({placeholders})
+                        ORDER BY "order" ASC NULLS LAST, id ASC
+                        LIMIT 5
+                    ''', (task_id, *allowed_child_statuses)).fetchall()
+
+                    if unfinished_children:
+                        # Count total unfinished
+                        total_unfinished = conn.execute(f'''
+                            SELECT COUNT(*) FROM tasks
+                            WHERE parent_id = ? AND status NOT IN ({placeholders})
+                        ''', (task_id, *allowed_child_statuses)).fetchone()[0]
+
+                        children_info = [f"#{c[0]} [{c[2]}] {c[1][:50]}" for c in unfinished_children]
+                        more_msg = f" (+{total_unfinished - 5} more)" if total_unfinished > 5 else ""
+
+                        return {
+                            "success": False,
+                            "error": "Cannot complete task with unfinished children",
+                            "message": f"Task #{task_id} has {total_unfinished} unfinished child task(s). "
+                                      f"Complete or cancel them first: {', '.join(children_info)}{more_msg}"
+                        }
+
             # Build UPDATE query dynamically
             update_fields = []
             update_values = []

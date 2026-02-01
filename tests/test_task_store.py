@@ -289,6 +289,132 @@ class TestTaskStats:
         assert stats.pending_count == len(sample_task_data)  # All start as pending
 
 
+class TestParentCompletionValidation:
+    """
+    Tests for parent task completion validation.
+
+    Verifies that parent tasks cannot be manually set to finish statuses
+    (completed/tested/validated) when they have unfinished children.
+    This enforces the rule: only complete children, parents auto-propagate.
+    """
+
+    def test_cannot_complete_parent_with_pending_children(self, task_store):
+        """
+        Test that parent cannot be set to 'completed' when children are pending.
+        """
+        parent = task_store.create_task(title="Parent", content="Parent task")
+        parent_id = parent['task_id']
+
+        # Create pending children
+        task_store.create_task(title="Child 1", content="First child", parent_id=parent_id)
+        task_store.create_task(title="Child 2", content="Second child", parent_id=parent_id)
+
+        # Try to complete parent - should fail
+        result = task_store.update_task(parent_id, status='completed')
+
+        assert result['success'] is False
+        assert 'unfinished child' in result['message'].lower()
+        assert 'error' in result
+
+        # Verify parent still pending
+        parent_task = task_store.get_task_by_id(parent_id)
+        assert parent_task.status == 'pending'
+
+    def test_cannot_complete_parent_with_in_progress_children(self, task_store):
+        """
+        Test that parent cannot be set to 'completed' when children are in_progress.
+        """
+        parent = task_store.create_task(title="Parent", content="Parent task")
+        parent_id = parent['task_id']
+
+        child = task_store.create_task(title="Child", content="Child task", parent_id=parent_id)
+        task_store.update_task(child['task_id'], status='in_progress')
+
+        # Try to complete parent - should fail
+        result = task_store.update_task(parent_id, status='completed')
+
+        assert result['success'] is False
+        assert 'unfinished child' in result['message'].lower()
+
+    def test_cannot_validate_parent_with_pending_children(self, task_store):
+        """
+        Test that parent cannot be set to 'validated' when children are pending.
+        """
+        parent = task_store.create_task(title="Parent", content="Parent task")
+        parent_id = parent['task_id']
+
+        task_store.create_task(title="Child", content="Child task", parent_id=parent_id)
+
+        # Try to validate parent - should fail
+        result = task_store.update_task(parent_id, status='validated')
+
+        assert result['success'] is False
+        assert 'unfinished child' in result['message'].lower()
+
+    def test_can_complete_parent_when_all_children_finished(self, task_store):
+        """
+        Test that parent CAN be manually completed when all children are finished.
+        (Though normally auto-propagation handles this)
+        """
+        parent = task_store.create_task(title="Parent", content="Parent task")
+        parent_id = parent['task_id']
+
+        child1 = task_store.create_task(title="Child 1", content="First", parent_id=parent_id)
+        child2 = task_store.create_task(title="Child 2", content="Second", parent_id=parent_id)
+
+        # Complete all children
+        task_store.update_task(child1['task_id'], status='in_progress')
+        task_store.update_task(child1['task_id'], status='completed')
+        task_store.update_task(child2['task_id'], status='in_progress')
+        task_store.update_task(child2['task_id'], status='validated')
+
+        # Parent should already be completed via propagation
+        parent_task = task_store.get_task_by_id(parent_id)
+        assert parent_task.status == 'completed'
+
+        # Manual update to 'tested' should also work
+        result = task_store.update_task(parent_id, status='tested')
+        assert result['success'] is True
+
+    def test_can_complete_parent_when_children_canceled(self, task_store):
+        """
+        Test that canceled children don't block parent completion.
+        """
+        parent = task_store.create_task(title="Parent", content="Parent task")
+        parent_id = parent['task_id']
+
+        child1 = task_store.create_task(title="Child 1", content="First", parent_id=parent_id)
+        child2 = task_store.create_task(title="Child 2", content="Second", parent_id=parent_id)
+
+        # Complete one, cancel another
+        task_store.update_task(child1['task_id'], status='in_progress')
+        task_store.update_task(child1['task_id'], status='completed')
+        task_store.update_task(child2['task_id'], status='canceled')
+
+        # Try to validate parent - should succeed (completed + canceled = all finished)
+        result = task_store.update_task(parent_id, status='validated')
+        assert result['success'] is True
+
+    def test_error_message_includes_unfinished_children_info(self, task_store):
+        """
+        Test that error message includes details about unfinished children.
+        """
+        parent = task_store.create_task(title="Parent", content="Parent task")
+        parent_id = parent['task_id']
+
+        task_store.create_task(title="Pending Child", content="Still pending", parent_id=parent_id)
+        child2 = task_store.create_task(title="Working Child", content="In progress", parent_id=parent_id)
+        task_store.update_task(child2['task_id'], status='in_progress')
+
+        result = task_store.update_task(parent_id, status='completed')
+
+        assert result['success'] is False
+        # Should mention count
+        assert '2 unfinished' in result['message']
+        # Should list children
+        assert 'Pending Child' in result['message'] or 'Working Child' in result['message']
+
+
 class TestBulkOperations:
     """
     Tests for bulk task operations.
