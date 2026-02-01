@@ -97,7 +97,9 @@ Status propagation:
 
 Example: Parent[completed] + Child1[completed] + Child2[completed].
 Validation fails → Child2→pending ⟹ Parent→pending.
-Fix → Child2→completed ⟹ all finished ⟹ Parent→completed again."""
+Fix → Child2→completed ⟹ all finished ⟹ Parent→completed again.
+
+NEVER update parent task status. System propagates automatically. Only update YOUR assigned task."""
     )
     
     # ===============================================================================
