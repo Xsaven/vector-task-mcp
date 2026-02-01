@@ -54,7 +54,10 @@ Cosmetic = fix inline, NEVER create task. Cosmetic includes: whitespace, typos, 
 Functional issues ONLY = create fix-task. Functional: logic bugs, security vulnerabilities, architecture violations, missing tests, broken functionality. NOT functional: comments, docs, naming, formatting.
 
 ## Fix-task-blocks-validated (CRITICAL)
-If fix-task created → parent status MUST be "pending", NEVER "validated". "validated" = ZERO fix-tasks. NO EXCEPTIONS. "NOT blocking" still requires fix-task and `pending` status.
+If fix-task created → $VECTOR_TASK_ID status MUST be "pending", NEVER "validated". "validated" = ZERO fix-tasks. SCOPE: only $VECTOR_TASK_ID status.
+
+## Parent-readonly (CRITICAL)
+$PARENT is READ-ONLY context. NEVER call task_update on parent task. NEVER attempt to change parent status. Parent hierarchy is managed by operator/automation OUTSIDE this validation scope. Validator scope = $VECTOR_TASK_ID ONLY.
 
 
 # Input
@@ -75,7 +78,7 @@ STORE-AS($VECTOR_TASK_ID = {numeric ID extracted from $CLEAN_ARGS})
   ABORT "another session active"
 → END-IF
 - `5`: IF(STORE-GET($TASK).parent_id) →
-  mcp__vector-task__task_get('{task_id: parent_id}') STORE-AS($PARENT)
+  mcp__vector-task__task_get('{task_id: parent_id}') STORE-AS($PARENT) (READ-ONLY context, NEVER modify)
 → END-IF
 - `6`: mcp__vector-task__task_list('{parent_id: $VECTOR_TASK_ID}') STORE-AS($SUBTASKS)
 - `7`: mcp__vector-memory__search_memories('{query: task.title, limit: 5, category: "code-solution"}') STORE-AS($MEMORY_CONTEXT)

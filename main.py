@@ -87,7 +87,18 @@ def create_server() -> FastMCP:
         sys.exit(1)
     
     # Create FastMCP server
-    mcp = FastMCP(Config.SERVER_NAME)
+    mcp = FastMCP(
+        Config.SERVER_NAME,
+        instructions="""Hierarchical task manager with vector search.
+
+Status propagation:
+- child→pending ⟹ parent→pending (immediate, even if parent was completed)
+- ALL children→finished ⟹ parent→completed (auto, recursive up)
+
+Example: Parent[completed] + Child1[completed] + Child2[completed].
+Validation fails → Child2→pending ⟹ Parent→pending.
+Fix → Child2→completed ⟹ all finished ⟹ Parent→completed again."""
+    )
     
     # ===============================================================================
     # TASK MANAGEMENT TOOLS
@@ -215,6 +226,8 @@ def create_server() -> FastMCP:
     ) -> dict[str, Any]:
         """
         Update task fields by ID.
+
+        Status propagation: child→pending ⟹ parent→pending; ALL children→finished ⟹ parent→completed.
 
         Args:
             task_id: Task ID to update
