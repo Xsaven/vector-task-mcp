@@ -8,8 +8,17 @@ Defines the core data structures used throughout the vector task system.
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
+from importlib.metadata import version, PackageNotFoundError
 from typing import List, Optional, Dict, Any
 import json
+
+
+def _get_version() -> str:
+    """Get package version from metadata or fallback to pyproject.toml"""
+    try:
+        return version("vector-task-mcp")
+    except PackageNotFoundError:
+        return "dev"
 
 
 def decimal_hours_to_hhmm(hours: float) -> float:
@@ -314,7 +323,7 @@ class Config:
 
     # Server configuration
     SERVER_NAME = "Vector Task MCP Server"
-    SERVER_VERSION = "1.0.0"
+    SERVER_VERSION = _get_version()
 
     # Content limits
     MAX_MEMORY_LENGTH = 10000  # Maximum length for content and comments (10K chars)
