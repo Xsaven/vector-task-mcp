@@ -192,6 +192,7 @@ class Task:
     estimate: Optional[float] = None
     order: Optional[int] = None
     time_spent: float = 0.0
+    parallel: bool = False
     status_history: Optional[List[Dict[str, Any]]] = None
 
     def __post_init__(self):
@@ -219,6 +220,7 @@ class Task:
             "estimate": self.estimate,
             "order": self.order,
             "time_spent": self.time_spent,
+            "parallel": self.parallel,
             "status_history": self.status_history
         }
 
@@ -240,7 +242,8 @@ class Task:
             content_hash=row[11] if len(row) > 11 else None,
             estimate=float(row[12]) if len(row) > 12 and row[12] is not None else None,
             order=int(row[13]) if len(row) > 13 and row[13] is not None else None,
-            time_spent=row[14] if len(row) > 14 else 0.0
+            time_spent=row[14] if len(row) > 14 else 0.0,
+            parallel=bool(row[15]) if len(row) > 15 and row[15] is not None else False
         )
 
 

@@ -115,7 +115,8 @@ NEVER update parent task status. System propagates automatically. Only update YO
         priority: str = None,
         estimate: float | None = None,
         order: int | None = None,
-        tags: list[str] = None
+        tags: list[str] = None,
+        parallel: bool = False
     ) -> dict[str, Any]:
         """
         Create new task with vector embedding for semantic search.
@@ -129,6 +130,7 @@ NEVER update parent task status. System propagates automatically. Only update YO
             estimate: Optional time estimate in hours
             order: Optional task order/position (auto-assigned if not provided)
             tags: Optional list of tags for organization (max 10)
+            parallel: Whether task can be executed in parallel with siblings (default: False)
         """
         try:
             # Ensure database is initialized (lazy loading)
@@ -146,6 +148,7 @@ NEVER update parent task status. System propagates automatically. Only update YO
                 tags=tags,
                 estimate=estimate,
                 order=order,
+                parallel=parallel,
                 embedding_model=model
             )
             return result
@@ -178,11 +181,12 @@ NEVER update parent task status. System propagates automatically. Only update YO
                 - estimate (optional): Time estimate in hours
                 - order (optional): Task order/position (auto-assigned if not provided)
                 - tags (optional): List of tags for organization (max 10)
+                - parallel (optional): Whether task can be executed in parallel with siblings (default: False)
 
         Example:
             tasks = [
-                {"title": "Task 1", "content": "Description", "parent_id": None, "comment": "Note", "priority": "high", "estimate": 3.5, "order": 1, "tags": ["backend", "api"]},
-                {"title": "Task 2", "content": "Description", "parent_id": 1, "comment": None, "estimate": 2.0, "order": 2, "tags": ["frontend"]}
+                {"title": "Task 1", "content": "Description", "parent_id": None, "comment": "Note", "priority": "high", "estimate": 3.5, "order": 1, "tags": ["backend", "api"], "parallel": True},
+                {"title": "Task 2", "content": "Description", "parent_id": 1, "comment": None, "estimate": 2.0, "order": 2, "tags": ["frontend"], "parallel": True}
             ]
         """
         try:
@@ -224,7 +228,8 @@ NEVER update parent task status. System propagates automatically. Only update YO
         tags: list[str] | None = None,
         append_comment: bool = False,
         add_tag: str | None = None,
-        remove_tag: str | None = None
+        remove_tag: str | None = None,
+        parallel: bool | None = None
     ) -> dict[str, Any]:
         """
         Update task fields by ID.
@@ -247,6 +252,7 @@ NEVER update parent task status. System propagates automatically. Only update YO
             append_comment: If True, append comment to existing with \\n\\n separator
             add_tag: Optional single tag to add (validates duplicates and 10-tag limit)
             remove_tag: Optional single tag to remove (case-insensitive, silent if not found)
+            parallel: Optional flag for parallel execution with siblings
         """
         try:
             # Ensure database is initialized (lazy loading)
@@ -322,6 +328,8 @@ NEVER update parent task status. System propagates automatically. Only update YO
                 kwargs['order'] = order
             if tags is not None:
                 kwargs['tags'] = tags
+            if parallel is not None:
+                kwargs['parallel'] = parallel
 
             # Only load embedding model if title, content, or tags are changing
             embedding_model = None

@@ -12,23 +12,23 @@ description: "Decompose large task into subtasks (each <=5-8h)"
 <provides>Task decomposition into subtasks. 2 parallel agents research (code + memory), plans logical execution order, creates subtasks. NEVER executes - only creates.</provides>
 
 # Iron Rules
-## Tool-call-first (CRITICAL)
-YOUR VERY FIRST RESPONSE MUST BE A TOOL CALL. No text before tools. No analysis. No thinking out loud. CALL mcp__vector-task__task_get IMMEDIATELY with $TASK_ID.
+## Task-get-first (CRITICAL)
+FIRST TOOL CALL = mcp__vector-task__task_get. No text before. Load task, THEN analyze how to decompose.
 
 ## No-hallucination (CRITICAL)
-NEVER output results without ACTUALLY calling tools. You CANNOT know task status or content without REAL tool calls. Fake results = CRITICAL VIOLATION.
+NEVER output results without ACTUALLY calling tools. Fake results = CRITICAL VIOLATION.
 
 ## No-verbose (CRITICAL)
-FORBIDDEN: <meta>, <synthesis>, <plan>, <analysis> tags. No long explanations before action. Brief status updates ONLY.
+FORBIDDEN: <meta>, <synthesis>, <plan>, <analysis> tags. Brief status only.
 
 ## Show-progress (HIGH)
-ALWAYS show brief step status and results. User must see what is happening.
+Show brief step status. User must see what is happening.
 
-## No-interpretation (CRITICAL)
-NEVER interpret task content or give generic responses. Task ID given = decompose it. Follow the workflow EXACTLY.
+## Understand-to-decompose (CRITICAL)
+MUST understand task INTENT to decompose properly. Analyze: what are logical boundaries? what depends on what? Unknown library/pattern → context7 first.
 
 ## Auto-approve (HIGH)
--y flag = auto-approve. Skip "Proceed?" questions, but STILL show progress.
+-y flag = auto-approve. Skip "Proceed?" but show progress.
 
 ## Create-only (CRITICAL)
 This command ONLY creates subtasks. NEVER execute any subtask after creation.
@@ -74,69 +74,39 @@ STORE-AS($TASK_ID = {numeric ID extracted from $CLEAN_ARGS})
 
 # Workflow
 GOAL(Decompose task into subtasks: load → research → plan → approve → create)
-- `1`: OUTPUT(=== TASK:DECOMPOSE === Loading task #$TASK_ID...)
-- `2`: mcp__vector-task__task_get('{task_id: $TASK_ID}') → STORE-AS($TASK)
-- `3`: IF(not found) → ABORT "Task #$TASK_ID not found"
-- `4`: mcp__vector-task__task_list('{parent_id: $TASK_ID, limit: 50}') → STORE-AS($EXISTING_SUBTASKS)
-- `5`: IF(EXISTING_SUBTASKS.count > 0 AND NOT $HAS_Y_FLAG) →
-  Task has {count} existing subtasks.
+- `1`: mcp__vector-task__task_get('{task_id: $TASK_ID}') → STORE-AS($TASK)
+- `2`: IF(not found) → ABORT "Task not found"
+- `3`: mcp__vector-task__task_list('{parent_id: $TASK_ID, limit: 50}') → STORE-AS($EXISTING_SUBTASKS)
+- `4`: IF(EXISTING_SUBTASKS.count > 0 AND NOT $HAS_AUTO_APPROVE) →
   Ask: "(1) Add more, (2) Replace all, (3) Abort"
-  WAIT for user choice
 → END-IF
-- `6`: OUTPUT(Task: #{$TASK.id} - {$TASK.title} Status: {$TASK.status} | Priority: {$TASK.priority} Existing subtasks: {count})
-- `7`: OUTPUT( ## RESEARCH (2 agents parallel))
-- `8`: Launch 2 agents in PARALLEL (single message with multiple Task calls):
-- `9`: [DELEGATE] @agent-explore: 'DECOMPOSITION RESEARCH for task #{$TASK.id}: "{$TASK.title}". Find: files, components, dependencies, natural split boundaries. EXCLUDE: .brain/. OUTPUT: {files:[], components:[], boundaries:[]}' Task(@agent-vector-master, 'TASK →'."\\n"
-    .'  Memory search for: task decomposition patterns, similar implementations, past estimates'."\\n"
-    .'→ END-TASK', 'STORE-AS($MEMORY_INSIGHTS)')
-- `10`: STORE-AS($CODE_INSIGHTS = {from explore agent})
-- `11`: OUTPUT( ## PLANNING)
-- `12`: mcp__sequential-thinking__sequentialthinking('{'."\\n"
-    .'                thought: "Synthesizing research: CODE_INSIGHTS + MEMORY_INSIGHTS. Identifying: logical boundaries, component coupling, data dependencies, effort distribution.",'."\\n"
+- `5`: IF(unknown library/pattern in task) →
+  mcp__context7__query-docs('{query: "{library/pattern}"}') → understand before decomposing
+→ END-IF
+- `6`: [PARALLEL] → ([DELEGATE] @agent-explore: 'DECOMPOSE RESEARCH: task #{$TASK.id}. Find: files, components, dependencies, split boundaries. EXCLUDE: .brain/. Return: {files, components, boundaries}' + mcp__vector-memory__search_memories('{query: "decomposition patterns, similar tasks", limit: 5}') → STORE-AS($MEMORY_INSIGHTS)) → END-PARALLEL
+- `7`: STORE-AS($CODE_INSIGHTS = {from explore agent})
+- `8`: mcp__sequential-thinking__sequentialthinking('{'."\\n"
+    .'                thought: "Synthesizing: CODE_INSIGHTS + MEMORY_INSIGHTS. Identify: boundaries, dependencies, parallel opportunities, order.",'."\\n"
     .'                thoughtNumber: 1,'."\\n"
-    .'                totalThoughts: 3,'."\\n"
+    .'                totalThoughts: 2,'."\\n"
     .'                nextThoughtNeeded: true'."\\n"
     .'            }')
-- `13`: Create subtask plan: group by component, order by dependency, estimate each
-- `14`: IF(2+ subtasks) →
-  STOP: Analyze optimal execution sequence
-  Consider: What depends on what? What can run parallel? What needs setup first?
-  Assign order: 1=first, 2=second, same order=parallel-safe
-→ END-IF
-- `15`: STORE-AS($SUBTASK_PLAN = [{title, content, estimate, priority, order}])
-- `16`: IF(3+ subtasks) →
-  mcp__sequential-thinking__sequentialthinking('{thought: "Analyze dependencies and optimal order for subtasks", thoughtNumber: 1, totalThoughts: 3, nextThoughtNeeded: true}')
-→ END-IF
-- `17`: OUTPUT( ## PLAN)
-- `18`: Show table: | Order | Subtask | Est | Priority | Depends |
-- `19`: IF($HAS_Y_FLAG) → OUTPUT(Auto-approved (-y flag))
-- `20`: IF(NOT $HAS_Y_FLAG) →
+- `9`: Group by component, order by dependency, estimate each
+- `10`: STORE-AS($SUBTASK_PLAN = [{title, content, estimate, priority, order}])
+- `11`: Show: | Order | Subtask | Est | Priority |
+- `12`: IF($HAS_AUTO_APPROVE) →
+  Auto-approved
+→ ELSE →
   Ask: "Create {count} subtasks? (yes/no/modify)"
-  WAIT for approval
 → END-IF
-- `21`: OUTPUT( ## CREATING)
-- `22`: mcp__vector-task__task_create_bulk('{tasks: [{title, content, parent_id: $TASK_ID, priority, estimate, order, tags: [...$TASK.tags, "decomposed"]}]}')
-- `23`: mcp__vector-task__task_list('{parent_id: $TASK_ID}') → verify created
-- `24`: mcp__vector-memory__store_memory('{content: "DECOMPOSED|#{$TASK.id}|subtasks:{count}", category: "tool-usage", tags: ["task-decomposition"]}')
-- `25`: OUTPUT( === DECOMPOSITION COMPLETE === Created: {count} subtasks Next: /task:list --parent={$TASK_ID})
-- `26`: STOP: Do NOT execute subtasks. Return control to user.
+- `13`: mcp__vector-task__task_create_bulk('{tasks: [{title, content, parent_id: $TASK_ID, priority, estimate, order, tags: ["decomposed"]}]}')
+- `14`: mcp__vector-task__task_list('{parent_id: $TASK_ID}') → verify
+- `15`: mcp__vector-memory__store_memory('{content: "Decomposed #{$TASK.id} into {count} subtasks", category: "tool-usage"}')
+- `16`: STOP: Do NOT execute. Return control to user.
 
 # Error handling
-Graceful error recovery
-- `1`: IF(task not found) →
-  Report error
-  Suggest task_list
-  ABORT
-→ END-IF
-- `2`: IF(agent fails) →
-  Log error
-  Continue with available data
-  Report partial results
-→ END-IF
-- `3`: IF(user rejects) →
-  Accept modifications
-  Rebuild plan
-  Re-submit for approval
-→ END-IF
+- `1`: IF(task not found) → ABORT "suggest task_list"
+- `2`: IF(agent fails) → Continue with available data
+- `3`: IF(user rejects plan) → Accept modifications, rebuild, re-submit
 
 </command>

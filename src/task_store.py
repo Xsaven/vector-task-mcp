@@ -190,6 +190,12 @@ class TaskStore:
             if 'time_spent' not in columns:
                 conn.execute("ALTER TABLE tasks ADD COLUMN time_spent REAL DEFAULT 0.0")
 
+            # Migration: Add parallel column if it doesn't exist
+            cursor = conn.execute("PRAGMA table_info(tasks)")
+            columns = [row[1] for row in cursor.fetchall()]
+            if 'parallel' not in columns:
+                conn.execute("ALTER TABLE tasks ADD COLUMN parallel INTEGER DEFAULT 0")
+
             # Create vector table using vec0
             conn.execute(f"""
                 CREATE VIRTUAL TABLE IF NOT EXISTS task_vectors USING vec0(
@@ -464,6 +470,7 @@ class TaskStore:
         tags: Optional[List[str]] = None,
         estimate: Optional[float] = None,
         order: Optional[int] = None,
+        parallel: bool = False,
         embedding_model: Optional[EmbeddingModel] = None
     ) -> Dict[str, Any]:
         """
@@ -478,6 +485,7 @@ class TaskStore:
             tags: Optional list of tags for categorization
             estimate: Optional time estimate in hours
             order: Optional order position (auto-assigned if None, shifts siblings if provided)
+            parallel: Whether task can be executed in parallel with siblings (default: False)
             embedding_model: Optional pre-loaded embedding model (for async callers)
 
         Returns:
@@ -537,9 +545,9 @@ class TaskStore:
             # Store task
             now = datetime.now(ZoneInfo(self.timezone)).isoformat()
             cursor = conn.execute("""
-                INSERT INTO tasks (parent_id, status, title, content, comment, priority, tags, content_hash, created_at, estimate, "order")
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (validated_parent_id, TaskStatus.PENDING.value, title, content, validated_comment, validated_priority, json.dumps(validated_tags), content_hash, now, estimate, order_value))
+                INSERT INTO tasks (parent_id, status, title, content, comment, priority, tags, content_hash, created_at, estimate, "order", parallel)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (validated_parent_id, TaskStatus.PENDING.value, title, content, validated_comment, validated_priority, json.dumps(validated_tags), content_hash, now, estimate, order_value, 1 if parallel else 0))
 
             task_id = cursor.lastrowid
 
@@ -565,7 +573,8 @@ class TaskStore:
                 "tags": validated_tags,
                 "status": TaskStatus.PENDING.value,
                 "created_at": now,
-                "order": order_value
+                "order": order_value,
+                "parallel": parallel
             }
 
         except SecurityError as e:
@@ -647,9 +656,10 @@ class TaskStore:
                     })
                     continue
 
-                # Extract estimate and order from original task dict
+                # Extract estimate, order, and parallel from original task dict
                 estimate = tasks[index].get("estimate") if index < len(tasks) else None
                 order = tasks[index].get("order") if index < len(tasks) else None
+                parallel = bool(tasks[index].get("parallel", False)) if index < len(tasks) else False
 
                 # Store metadata for later use
                 task_metadata.append({
@@ -661,7 +671,8 @@ class TaskStore:
                     "tags": validated_tags,
                     "content_hash": content_hash,
                     "estimate": estimate,
-                    "order": validated_order if validated_order else order
+                    "order": validated_order if validated_order else order,
+                    "parallel": parallel
                 })
 
                 combined_texts.append(combined)
@@ -683,8 +694,8 @@ class TaskStore:
             for idx, metadata in enumerate(task_metadata):
                 # Insert task
                 cursor = conn.execute("""
-                    INSERT INTO tasks (parent_id, status, title, content, comment, priority, tags, content_hash, created_at, estimate, "order")
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO tasks (parent_id, status, title, content, comment, priority, tags, content_hash, created_at, estimate, "order", parallel)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     metadata["parent_id"],
                     TaskStatus.PENDING.value,
@@ -696,7 +707,8 @@ class TaskStore:
                     metadata["content_hash"],
                     now,
                     metadata["estimate"],
-                    metadata["order"]
+                    metadata["order"],
+                    1 if metadata["parallel"] else 0
                 ))
 
                 task_id = cursor.lastrowid
@@ -940,6 +952,9 @@ class TaskStore:
                 elif key == 'order':
                     update_fields.append('"order" = ?')
                     update_values.append(value)
+                elif key == 'parallel':
+                    update_fields.append('parallel = ?')
+                    update_values.append(1 if value else 0)
 
             # Handle order change with shift logic
             if 'order' in validated_kwargs and validated_kwargs['order'] is not None:
@@ -1046,7 +1061,7 @@ class TaskStore:
 
             # Fetch updated task
             result = conn.execute("""
-                SELECT id, parent_id, status, priority, title, content, comment, tags, created_at, start_at, finish_at, content_hash, estimate, "order", time_spent
+                SELECT id, parent_id, status, priority, title, content, comment, tags, created_at, start_at, finish_at, content_hash, estimate, "order", time_spent, parallel
                 FROM tasks
                 WHERE id = ?
             """, (task_id,)).fetchone()
@@ -1218,7 +1233,7 @@ class TaskStore:
 
         try:
             result = conn.execute("""
-                SELECT id, parent_id, status, priority, title, content, comment, tags, created_at, start_at, finish_at, content_hash, estimate, "order", time_spent
+                SELECT id, parent_id, status, priority, title, content, comment, tags, created_at, start_at, finish_at, content_hash, estimate, "order", time_spent, parallel
                 FROM tasks
                 WHERE id = ?
             """, (task_id,)).fetchone()
@@ -1290,7 +1305,7 @@ class TaskStore:
         try:
             # First check for in_progress child tasks
             in_progress = conn.execute("""
-                SELECT id, parent_id, status, priority, title, content, comment, tags, created_at, start_at, finish_at, content_hash, estimate, "order", time_spent
+                SELECT id, parent_id, status, priority, title, content, comment, tags, created_at, start_at, finish_at, content_hash, estimate, "order", time_spent, parallel
                 FROM tasks
                 WHERE status = ? AND parent_id = ?
                 ORDER BY "order" ASC NULLS LAST, created_at ASC
@@ -1314,7 +1329,7 @@ class TaskStore:
             if last_finished:
                 # Get first pending child task created after last finished
                 next_pending = conn.execute("""
-                    SELECT id, parent_id, status, priority, title, content, comment, tags, created_at, start_at, finish_at, content_hash, estimate, "order", time_spent
+                    SELECT id, parent_id, status, priority, title, content, comment, tags, created_at, start_at, finish_at, content_hash, estimate, "order", time_spent, parallel
                     FROM tasks
                     WHERE status = ? AND parent_id = ? AND created_at > ?
                     ORDER BY "order" ASC NULLS LAST, CASE priority WHEN 'critical' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 WHEN 'low' THEN 4 END, created_at ASC
@@ -1326,7 +1341,7 @@ class TaskStore:
 
             # No completed child tasks or no pending after completed, get first pending child
             first_pending = conn.execute("""
-                SELECT id, parent_id, status, priority, title, content, comment, tags, created_at, start_at, finish_at, content_hash, estimate, "order", time_spent
+                SELECT id, parent_id, status, priority, title, content, comment, tags, created_at, start_at, finish_at, content_hash, estimate, "order", time_spent, parallel
                 FROM tasks
                 WHERE status = ? AND parent_id = ?
                 ORDER BY "order" ASC NULLS LAST, CASE priority WHEN 'critical' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 WHEN 'low' THEN 4 END, created_at ASC
@@ -1358,7 +1373,7 @@ class TaskStore:
 
         try:
             result = conn.execute("""
-                SELECT id, parent_id, status, priority, title, content, comment, tags, created_at, start_at, finish_at, content_hash, estimate, "order", time_spent
+                SELECT id, parent_id, status, priority, title, content, comment, tags, created_at, start_at, finish_at, content_hash, estimate, "order", time_spent, parallel
                 FROM tasks
                 ORDER BY created_at DESC
                 LIMIT 1
@@ -1394,7 +1409,7 @@ class TaskStore:
         try:
             # First check for in_progress tasks
             in_progress = conn.execute("""
-                SELECT id, parent_id, status, priority, title, content, comment, tags, created_at, start_at, finish_at, content_hash, estimate, "order", time_spent
+                SELECT id, parent_id, status, priority, title, content, comment, tags, created_at, start_at, finish_at, content_hash, estimate, "order", time_spent, parallel
                 FROM tasks
                 WHERE status = ?
                 ORDER BY "order" ASC NULLS LAST, created_at ASC
@@ -1418,7 +1433,7 @@ class TaskStore:
             if last_finished:
                 # Get first pending task created after last finished
                 next_pending = conn.execute("""
-                    SELECT id, parent_id, status, priority, title, content, comment, tags, created_at, start_at, finish_at, content_hash, estimate, "order", time_spent
+                    SELECT id, parent_id, status, priority, title, content, comment, tags, created_at, start_at, finish_at, content_hash, estimate, "order", time_spent, parallel
                     FROM tasks
                     WHERE status = ? AND created_at > ?
                     ORDER BY "order" ASC NULLS LAST, CASE priority WHEN 'critical' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 WHEN 'low' THEN 4 END, created_at ASC
@@ -1430,7 +1445,7 @@ class TaskStore:
 
             # No completed tasks or no pending after completed, get first pending
             first_pending = conn.execute("""
-                SELECT id, parent_id, status, priority, title, content, comment, tags, created_at, start_at, finish_at, content_hash, estimate, "order", time_spent
+                SELECT id, parent_id, status, priority, title, content, comment, tags, created_at, start_at, finish_at, content_hash, estimate, "order", time_spent, parallel
                 FROM tasks
                 WHERE status = ?
                 ORDER BY "order" ASC NULLS LAST, CASE priority WHEN 'critical' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 WHEN 'low' THEN 4 END, created_at ASC
@@ -1537,7 +1552,7 @@ class TaskStore:
                 # Build search query
                 base_query = """
                     SELECT
-                        t.id, t.parent_id, t.status, t.priority, t.title, t.content, t.comment, t.tags, t.created_at, t.start_at, t.finish_at, t.content_hash, t.estimate, t."order", t.time_spent,
+                        t.id, t.parent_id, t.status, t.priority, t.title, t.content, t.comment, t.tags, t.created_at, t.start_at, t.finish_at, t.content_hash, t.estimate, t."order", t.time_spent, t.parallel,
                         vec_distance_cosine(v.embedding, ?) as distance
                     FROM tasks t
                     JOIN task_vectors v ON t.id = v.rowid
@@ -1594,7 +1609,7 @@ class TaskStore:
             else:
                 # No query, just list with filters
                 base_query = """
-                    SELECT id, parent_id, status, priority, title, content, comment, tags, created_at, start_at, finish_at, content_hash, estimate, "order", time_spent
+                    SELECT id, parent_id, status, priority, title, content, comment, tags, created_at, start_at, finish_at, content_hash, estimate, "order", time_spent, parallel
                     FROM tasks
                 """
 

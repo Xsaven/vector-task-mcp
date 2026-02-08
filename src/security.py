@@ -437,7 +437,7 @@ def validate_task_stats_params(
     )
 
 
-def validate_task_params(title: str, content: str, status: str = None, parent_id: int = None, comment: str = None, priority: str = None, tags: List[str] = None, order: int = None) -> tuple:
+def validate_task_params(title: str, content: str, status: str = None, parent_id: int = None, comment: str = None, priority: str = None, tags: List[str] = None, order: int = None, parallel: bool = None) -> tuple:
     """
     Validate task creation/update parameters.
 
@@ -450,6 +450,7 @@ def validate_task_params(title: str, content: str, status: str = None, parent_id
         priority: Optional task priority
         tags: Optional list of tags
         order: Optional task order (positive integer)
+        parallel: Optional parallel execution flag (boolean)
 
     Returns:
         tuple: (sanitized_title, sanitized_content, validated_status, validated_parent_id, validated_comment, validated_priority, validated_tags, validated_order)
@@ -613,6 +614,13 @@ def validate_task_update_params(task_id: int, **kwargs) -> tuple:
     # Validate finish_at if provided (pass through - already validated as ISO8601 string)
     if 'finish_at' in kwargs:
         validated_kwargs['finish_at'] = kwargs['finish_at']
+
+    # Validate parallel if provided
+    if 'parallel' in kwargs:
+        parallel_value = kwargs['parallel']
+        if parallel_value is not None and not isinstance(parallel_value, bool):
+            raise SecurityError("parallel must be a boolean")
+        validated_kwargs['parallel'] = parallel_value
 
     return task_id, validated_kwargs
 
