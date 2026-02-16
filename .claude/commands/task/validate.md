@@ -224,7 +224,7 @@ STORE-AS($VECTOR_TASK_ID = {numeric ID extracted from $CLEAN_ARGS})
   LIGHT VALIDATION MODE: skip quality gates and agent validation
   Check only: files exist, valid syntax/format, no obvious errors
   IF(basic checks pass) →
-  mcp__vector-task__task_update('{task_id: $VECTOR_TASK_ID, status: "validated", comment: "Light validation passed (trivial task)", append_comment: true}')
+  mcp__vector-task__task_update('{task_id: $VECTOR_TASK_ID, status: "validated", comment: "Light validation passed (trivial task)"}')
 → ELSE →
   mcp__vector-task__task_create('{title: "Light validation fixes: #ID", content: basic_issues, parent_id: $VECTOR_TASK_ID, tags: ["validation-fix"]}')
   mcp__vector-task__task_update('{task_id: $VECTOR_TASK_ID, status: "pending"}')

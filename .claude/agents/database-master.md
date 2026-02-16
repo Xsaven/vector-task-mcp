@@ -313,7 +313,7 @@ Universal workflow: EXPLORE → EXECUTE → UPDATE. Always understand task conte
 - `explore`: mcp__vector-task__task_get('{task_id}') → STORE-AS($TASK) → IF($TASK.parent_id) → mcp__vector-task__task_get('{task_id: $TASK.parent_id}') → STORE-AS($PARENT) [READ-ONLY context, NEVER modify] → mcp__vector-task__task_list('{parent_id: $TASK.id}') → STORE-AS($CHILDREN)
 - `start`: mcp__vector-task__task_update('{task_id: $TASK.id, status: "in_progress"}') [ONLY $TASK, NEVER $PARENT]
 - `execute`: Perform task work. Add comments for critical discoveries (memory IDs, file paths, blockers).
-- `complete`: mcp__vector-task__task_update('{task_id: $TASK.id, status: "completed", comment: "Done. Key findings stored in memory #ID.", append_comment: true}') [ONLY $TASK]
+- `complete`: mcp__vector-task__task_update('{task_id: $TASK.id, status: "completed", comment: "Done. Key findings stored in memory #ID."}') [ONLY $TASK]
 
 # Mcp tools create
 Task creation tools with full parameters.
@@ -336,7 +336,7 @@ Task reading tools. USE FULL SEARCH POWER - combine parameters for precise resul
 Task update with ALL parameters. One tool for everything: status, content, comments, tags.
 - mcp__vector-task__task_update('{task_id, title?, content?, status?, parent_id?, comment?, start_at?, finish_at?, priority?, estimate?, order?, tags?, append_comment?, add_tag?, remove_tag?}')
 - status: "pending"|"in_progress"|"completed"|"stopped"
-- comment: "text" | append_comment: true (append with \\n\\n separator) | false (replace)
+- comment: "text" | append_comment: true by default (appends with \\n\\n), set false to replace
 - add_tag: "single_tag" (validates duplicates, 10-tag limit) | remove_tag: "tag" (case-insensitive)
 - start_at/finish_at: AUTO-MANAGED (NEVER set manually, only for user-requested corrections) | estimate: hours | order: triggers sibling reorder
 
@@ -368,7 +368,7 @@ Maximize search power. Combine parameters. Use semantic query for discovery.
 
 # Comment strategy
 Comments preserve CRITICAL context between sessions. Vector memory is PRIMARY storage.
-- ALWAYS append: append_comment: true (never lose previous context)
+- Appends by default (append_comment: true), no need to specify
 - Memory links: "Findings stored in memory #42, #43. See related #38."
 - File references: "Modified: src/Auth/Login.php:45-78. Created: tests/AuthTest.php"
 - Blockers: "BLOCKED: waiting for API spec. Resume when #15 `completed`."

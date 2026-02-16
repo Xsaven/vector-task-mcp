@@ -88,7 +88,7 @@ GOAL(Sync validate: load → approve → context → validate → aggregate → 
 → ELSE →
   Ask: "Validate? (yes/no)"
 → END-IF
-- `10`: mcp__vector-task__task_update('{task_id: $VECTOR_TASK_ID, status: "in_progress", comment: "Sync validation started", append_comment: true}')
+- `10`: mcp__vector-task__task_update('{task_id: $VECTOR_TASK_ID, status: "in_progress", comment: "Sync validation started"}')
 - `11`: mcp__vector-memory__search_memories('{query: "{TASK.title}", limit: 5, category: "code-solution"}') → STORE-AS($MEMORY)
 - `12`: mcp__vector-task__task_list('{query: "{TASK.title}", limit: 5}') → STORE-AS($RELATED)
 - `13`: IF(unknown library/pattern) →
@@ -121,10 +121,10 @@ GOAL(Sync validate: load → approve → context → validate → aggregate → 
   Split into 5-8h batches, create multiple tasks
 → END-IF
 - `35`: IF(CREATED_TASKS.count = 0 AND FUNCTIONAL_COUNT = 0) →
-  mcp__vector-task__task_update('{task_id: $VECTOR_TASK_ID, status: "validated", comment: "Sync validation PASSED", append_comment: true}')
+  mcp__vector-task__task_update('{task_id: $VECTOR_TASK_ID, status: "validated", comment: "Sync validation PASSED"}')
 → END-IF
 - `36`: IF(CREATED_TASKS.count > 0) →
-  mcp__vector-task__task_update('{task_id: $VECTOR_TASK_ID, status: "pending", comment: "Validation found issues. Fix-tasks: {count}", append_comment: true}')
+  mcp__vector-task__task_update('{task_id: $VECTOR_TASK_ID, status: "pending", comment: "Validation found issues. Fix-tasks: {count}"}')
 → END-IF
 - `37`: mcp__vector-memory__store_memory('{content: "Validated #{TASK.id}: {status}. Issues: {counts}. Fix-tasks: {count}.", category: "code-solution"}')
 - `38`: Report: task, status, issues counts, cosmetic fixes, fix-tasks created

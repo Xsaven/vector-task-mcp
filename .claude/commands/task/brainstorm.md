@@ -85,7 +85,7 @@ GOAL(Brainstorm: load task → ask topic → gather context → ideate → itera
   Show current vs proposed changes
   Options: apply, rewrite, append, cancel
   IF(confirmed) →
-  mcp__vector-task__task_update('{task_id: $VECTOR_TASK_ID, content: "{new}", comment: "Brainstorm: {TOPIC}", append_comment: true}')
+  mcp__vector-task__task_update('{task_id: $VECTOR_TASK_ID, content: "{new}", comment: "Brainstorm: {TOPIC}"}')
 → END-IF
 → END-IF
 - `22`: IF(user wants subtasks) →
@@ -97,7 +97,7 @@ GOAL(Brainstorm: load task → ask topic → gather context → ideate → itera
 → END-IF
 - `23`: mcp__vector-memory__store_memory('{content: "Brainstorm #{TASK.id}: {TOPIC}. Insights: {summary}. Modified: {yes/no}. Subtasks: {count}.", category: "architecture", tags: ["brainstorm"]}')
 - `24`: IF(task modified OR subtasks created) →
-  mcp__vector-task__task_update('{task_id: $VECTOR_TASK_ID, comment: "Brainstorm `completed`: {TOPIC}", append_comment: true}')
+  mcp__vector-task__task_update('{task_id: $VECTOR_TASK_ID, comment: "Brainstorm `completed`: {TOPIC}"}')
 → END-IF
 - `25`: Report: task, topic, modifications, subtasks created
 

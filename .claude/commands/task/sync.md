@@ -175,7 +175,7 @@ STORE-AS($VECTOR_TASK_ID = {numeric ID extracted from $CLEAN_ARGS})
 → END-IF
   IF(no state OR timestamp >1h) →
   Stale session detected
-  mcp__vector-task__task_update('{task_id: $VECTOR_TASK_ID, status: "pending", comment: "Stale session reset", append_comment: true}')
+  mcp__vector-task__task_update('{task_id: $VECTOR_TASK_ID, status: "pending", comment: "Stale session reset"}')
 → END-IF
 → END-IF
 - `5`: IF(status=`tested` AND comment contains "TDD MODE") →
@@ -241,7 +241,7 @@ STORE-AS($VECTOR_TASK_ID = {numeric ID extracted from $CLEAN_ARGS})
 → ELSE →
   show plan, wait "yes"
 → END-IF
-- `28`: mcp__vector-task__task_update('{task_id: $VECTOR_TASK_ID, status: "in_progress", comment: "Started", append_comment: true}')
+- `28`: mcp__vector-task__task_update('{task_id: $VECTOR_TASK_ID, status: "in_progress", comment: "Started"}')
 - `29`: IF(PLAN requires new dependencies) →
   STORE-AS($DEPS_NEEDED = [{package, version?, dev?}])
   Detect package manager from project (composer.json, package.json, requirements.txt, Cargo.toml, go.mod, etc.)
@@ -263,7 +263,7 @@ STORE-AS($VECTOR_TASK_ID = {numeric ID extracted from $CLEAN_ARGS})
 → END-IF
 → END-IF
 - `32`: STORE-AS($CHANGED_FILES = [])
-- `33`: mcp__vector-task__task_update('{task_id: $VECTOR_TASK_ID, status: "in_progress", comment: "Executing...", append_comment: true}')
+- `33`: mcp__vector-task__task_update('{task_id: $VECTOR_TASK_ID, status: "in_progress", comment: "Executing..."}')
 - `34`: FOREACH(step in STORE-GET($PLAN)) →
   STORE-AS($CURRENT_STEP = {step_index})
   Read('{step.file}')
@@ -274,7 +274,7 @@ STORE-AS($VECTOR_TASK_ID = {numeric ID extracted from $CLEAN_ARGS})
   IF(still fails) →
   IF($HAS_AUTO_APPROVE AND previous steps changed files) →
   Bash('git checkout -- {changed_files}') OR restore from .bak
-  mcp__vector-task__task_update('{task_id: $VECTOR_TASK_ID, status: "pending", comment: "Failed at step N: {error}. Rolled back.", append_comment: true}')
+  mcp__vector-task__task_update('{task_id: $VECTOR_TASK_ID, status: "pending", comment: "Failed at step N: {error}. Rolled back."}')
   mcp__vector-memory__store_memory('{content: "FAILURE: Task #{id}, step {N}, error: {msg}, attempted: {fixes}", category: "debugging"}')
   ABORT "Step failed, rolled back"
 → END-IF
@@ -310,7 +310,7 @@ STORE-AS($VECTOR_TASK_ID = {numeric ID extracted from $CLEAN_ARGS})
   Analyze `failure`, attempt fix (max 2 tries)
   IF(still fails) →
   IF($HAS_AUTO_APPROVE) →
-  mcp__vector-task__task_update('{task_id: $VECTOR_TASK_ID, status: "pending", comment: "Tests failing: {failures}", append_comment: true}')
+  mcp__vector-task__task_update('{task_id: $VECTOR_TASK_ID, status: "pending", comment: "Tests failing: {failures}"}')
   ABORT "Tests fail, task marked pending"
 → END-IF
   IF(NOT $HAS_AUTO_APPROVE) → ask "Tests fail. Fix/Skip/Rollback?"
@@ -320,7 +320,7 @@ STORE-AS($VECTOR_TASK_ID = {numeric ID extracted from $CLEAN_ARGS})
 - `42`: IF(STORE-GET($GIT_STATUS) had stash) →
   Bash('git stash pop') (restore user changes)
 → END-IF
-- `43`: mcp__vector-task__task_update('{task_id: $VECTOR_TASK_ID, status: "completed", comment: "Done. Files: {changed_files}. Tests: {pass/skip/none}.", append_comment: true}')
+- `43`: mcp__vector-task__task_update('{task_id: $VECTOR_TASK_ID, status: "completed", comment: "Done. Files: {changed_files}. Tests: {pass/skip/none}."}')
 - `44`: mcp__vector-memory__store_memory('{content: "Task #{id}: {approach}, files: {list}, patterns used, learnings", category: "code-solution"}')
 
 # Tdd mode
@@ -330,7 +330,7 @@ STORE-AS($VECTOR_TASK_ID = {numeric ID extracted from $CLEAN_ARGS})
 - `2`: Implement feature following existing code patterns
 - `3`: Run tests: detect test framework from project (jest, pytest, phpunit, pest, cargo test, go test, etc.)
 - `4`: IF(all tests pass) →
-  mcp__vector-task__task_update('{task_id: $VECTOR_TASK_ID, status: "completed", comment: "TDD: All tests PASSED", append_comment: true}')
+  mcp__vector-task__task_update('{task_id: $VECTOR_TASK_ID, status: "completed", comment: "TDD: All tests PASSED"}')
   mcp__vector-memory__store_memory('{content: "TDD `success`: {feature}, implementation approach: {summary}", category: "code-solution"}')
 → END-IF
 - `5`: IF(tests fail) →
@@ -338,7 +338,7 @@ STORE-AS($VECTOR_TASK_ID = {numeric ID extracted from $CLEAN_ARGS})
   Implement fix based on test expectation
   Re-run tests (max 5 iterations)
   IF(still failing after 5 iterations) →
-  mcp__vector-task__task_update('{task_id: $VECTOR_TASK_ID, comment: "TDD stuck: {failing_tests}. Need guidance.", append_comment: true}')
+  mcp__vector-task__task_update('{task_id: $VECTOR_TASK_ID, comment: "TDD stuck: {failing_tests}. Need guidance."}')
   IF($HAS_AUTO_APPROVE) →
   ABORT "TDD: Cannot pass tests after 5 iterations"
 → END-IF

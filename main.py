@@ -226,7 +226,7 @@ NEVER update parent task status. System propagates automatically. Only update YO
         estimate: float | None = None,
         order: int | None = None,
         tags: list[str] | None = None,
-        append_comment: bool = False,
+        append_comment: bool = True,
         add_tag: str | None = None,
         remove_tag: str | None = None,
         parallel: bool | None = None
@@ -249,7 +249,7 @@ NEVER update parent task status. System propagates automatically. Only update YO
             estimate: Optional time estimate in hours
             order: Optional new order/position (triggers sibling reordering)
             tags: Optional list of tags to replace existing tags
-            append_comment: If True, append comment to existing with \\n\\n separator
+            append_comment: Append comment to existing with \\n\\n separator (default True). Set False to replace entirely
             add_tag: Optional single tag to add (validates duplicates and 10-tag limit)
             remove_tag: Optional single tag to remove (case-insensitive, silent if not found)
             parallel: Optional flag for parallel execution with siblings

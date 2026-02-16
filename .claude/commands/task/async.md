@@ -158,7 +158,7 @@ STORE-AS($VECTOR_TASK_ID = {numeric ID extracted from $CLEAN_ARGS})
 → END-IF
   IF(no state OR timestamp >1h) →
   Stale session detected
-  mcp__vector-task__task_update('{task_id: $VECTOR_TASK_ID, status: "pending", comment: "Stale session reset", append_comment: true}')
+  mcp__vector-task__task_update('{task_id: $VECTOR_TASK_ID, status: "pending", comment: "Stale session reset"}')
 → END-IF
 → END-IF
 - `5`: IF(status=`tested` AND comment contains "TDD MODE") →
@@ -239,7 +239,7 @@ STORE-AS($VECTOR_TASK_ID = {numeric ID extracted from $CLEAN_ARGS})
 → ELSE →
   show plan, wait "yes"
 → END-IF
-- `29`: mcp__vector-task__task_update('{task_id: $VECTOR_TASK_ID, status: "in_progress", comment: "Delegating to agents...", append_comment: true}')
+- `29`: mcp__vector-task__task_update('{task_id: $VECTOR_TASK_ID, status: "in_progress", comment: "Delegating to agents..."}')
 - `30`: STORE-AS($DELEGATION_STATE = {agent_tasks: [], started_at: timestamp})
 - `31`: 6.1 PARALLEL: Independent tasks → multiple [DELEGATE] @agent-{agent}: '{subtask + security + validation instructions}' in ONE message
 - `32`: 6.2 SEQUENTIAL: Dependent tasks → one by one, wait for result before next
@@ -281,17 +281,17 @@ STORE-AS($VECTOR_TASK_ID = {numeric ID extracted from $CLEAN_ARGS})
 - `40`: STORE-AS($AGENT_RESULTS = {succeeded: N, failed: M, files: [...], conflicts: [...]})
 - `41`: IF(some agents failed) →
   IF($HAS_AUTO_APPROVE AND >80% succeeded) →
-  mcp__vector-task__task_update('{status: "completed", comment: "Partial `success`: {succeeded}/{total}. Failed: {list}", append_comment: true}')
+  mcp__vector-task__task_update('{status: "completed", comment: "Partial `success`: {succeeded}/{total}. Failed: {list}"}')
 → END-IF
   IF($HAS_AUTO_APPROVE AND <=80% succeeded) →
-  mcp__vector-task__task_update('{status: "pending", comment: "Too many failures: {failed}/{total}", append_comment: true}')
+  mcp__vector-task__task_update('{status: "pending", comment: "Too many failures: {failed}/{total}"}')
   ABORT "Too many agent failures"
 → END-IF
   IF(NOT $HAS_AUTO_APPROVE) →
   ask "N/M succeeded. Complete partial/Rollback all/Retry failed?"
 → END-IF
 → END-IF
-- `42`: mcp__vector-task__task_update('{task_id: $VECTOR_TASK_ID, status: "completed", comment: "Done. Agents: {list}. Files: {files}.", append_comment: true}')
+- `42`: mcp__vector-task__task_update('{task_id: $VECTOR_TASK_ID, status: "completed", comment: "Done. Agents: {list}. Files: {files}."}')
 - `43`: mcp__vector-memory__store_memory('{content: "Task #{id}: delegation strategy, agents used: {list}, learnings: {summary}", category: "code-solution"}')
 
 # Agents
@@ -309,14 +309,14 @@ prompt-master = Brain component generation
 - `2`: Delegate implementation to agent with TDD context: "Tests exist at {path}. Implement to make tests pass."
 - `3`: After implementation → [DELEGATE] @agent-explore: 'Run tests. Detect framework (jest, pytest, phpunit, pest, cargo test, go test). Report pass/fail.'
 - `4`: IF(all tests pass) →
-  mcp__vector-task__task_update('{task_id: $VECTOR_TASK_ID, status: "completed", comment: "TDD: All tests PASSED", append_comment: true}')
+  mcp__vector-task__task_update('{task_id: $VECTOR_TASK_ID, status: "completed", comment: "TDD: All tests PASSED"}')
   mcp__vector-memory__store_memory('{content: "TDD `success`: {feature}, delegation strategy: {summary}", category: "code-solution"}')
 → END-IF
 - `5`: IF(tests fail) →
   Analyze `failure` from agent report
   Delegate fix to same agent with `failure` context (max 5 iterations)
   IF(still failing after 5 iterations) →
-  mcp__vector-task__task_update('{task_id: $VECTOR_TASK_ID, comment: "TDD stuck: {failing_tests}. Need guidance.", append_comment: true}')
+  mcp__vector-task__task_update('{task_id: $VECTOR_TASK_ID, comment: "TDD stuck: {failing_tests}. Need guidance."}')
   IF($HAS_AUTO_APPROVE) →
   ABORT "TDD: Cannot pass tests after 5 iterations"
 → END-IF
