@@ -10,6 +10,7 @@ import asyncio
 import sqlite3
 import sqlite_vec
 import json
+import math
 import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -196,6 +197,12 @@ class TaskStore:
             if 'parallel' not in columns:
                 conn.execute("ALTER TABLE tasks ADD COLUMN parallel INTEGER DEFAULT 0")
 
+            # Migration: Add tag_variants column if it doesn't exist
+            cursor = conn.execute("PRAGMA table_info(tasks)")
+            columns = [row[1] for row in cursor.fetchall()]
+            if 'tag_variants' not in columns:
+                conn.execute("ALTER TABLE tasks ADD COLUMN tag_variants TEXT")
+
             # Create vector table using vec0
             conn.execute(f"""
                 CREATE VIRTUAL TABLE IF NOT EXISTS task_vectors USING vec0(
@@ -216,6 +223,20 @@ class TaskStore:
                     FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
                 )
             """)
+
+            # Create canonical_tags table for tag normalization
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS canonical_tags (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    canonical_tag TEXT NOT NULL,
+                    variant_tag TEXT NOT NULL UNIQUE,
+                    created_at TEXT NOT NULL
+                )
+            """)
+
+            # Create index for canonical_tags lookups
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_canonical_variant ON canonical_tags(variant_tag)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_canonical_canonical ON canonical_tags(canonical_tag)")
 
             # Remove deprecated indexes (covered by composite indexes)
             conn.execute("DROP INDEX IF EXISTS idx_task_status")  # covered by idx_task_status_parent
@@ -1061,7 +1082,7 @@ class TaskStore:
 
             # Fetch updated task
             result = conn.execute("""
-                SELECT id, parent_id, status, priority, title, content, comment, tags, created_at, start_at, finish_at, content_hash, estimate, "order", time_spent, parallel
+                SELECT id, parent_id, status, priority, title, content, comment, tags, created_at, start_at, finish_at, content_hash, estimate, "order", time_spent, parallel, tag_variants
                 FROM tasks
                 WHERE id = ?
             """, (task_id,)).fetchone()
@@ -1233,7 +1254,7 @@ class TaskStore:
 
         try:
             result = conn.execute("""
-                SELECT id, parent_id, status, priority, title, content, comment, tags, created_at, start_at, finish_at, content_hash, estimate, "order", time_spent, parallel
+                SELECT id, parent_id, status, priority, title, content, comment, tags, created_at, start_at, finish_at, content_hash, estimate, "order", time_spent, parallel, tag_variants
                 FROM tasks
                 WHERE id = ?
             """, (task_id,)).fetchone()
@@ -1305,7 +1326,7 @@ class TaskStore:
         try:
             # First check for in_progress child tasks
             in_progress = conn.execute("""
-                SELECT id, parent_id, status, priority, title, content, comment, tags, created_at, start_at, finish_at, content_hash, estimate, "order", time_spent, parallel
+                SELECT id, parent_id, status, priority, title, content, comment, tags, created_at, start_at, finish_at, content_hash, estimate, "order", time_spent, parallel, tag_variants
                 FROM tasks
                 WHERE status = ? AND parent_id = ?
                 ORDER BY "order" ASC NULLS LAST, created_at ASC
@@ -1329,7 +1350,7 @@ class TaskStore:
             if last_finished:
                 # Get first pending child task created after last finished
                 next_pending = conn.execute("""
-                    SELECT id, parent_id, status, priority, title, content, comment, tags, created_at, start_at, finish_at, content_hash, estimate, "order", time_spent, parallel
+                    SELECT id, parent_id, status, priority, title, content, comment, tags, created_at, start_at, finish_at, content_hash, estimate, "order", time_spent, parallel, tag_variants
                     FROM tasks
                     WHERE status = ? AND parent_id = ? AND created_at > ?
                     ORDER BY "order" ASC NULLS LAST, CASE priority WHEN 'critical' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 WHEN 'low' THEN 4 END, created_at ASC
@@ -1341,7 +1362,7 @@ class TaskStore:
 
             # No completed child tasks or no pending after completed, get first pending child
             first_pending = conn.execute("""
-                SELECT id, parent_id, status, priority, title, content, comment, tags, created_at, start_at, finish_at, content_hash, estimate, "order", time_spent, parallel
+                SELECT id, parent_id, status, priority, title, content, comment, tags, created_at, start_at, finish_at, content_hash, estimate, "order", time_spent, parallel, tag_variants
                 FROM tasks
                 WHERE status = ? AND parent_id = ?
                 ORDER BY "order" ASC NULLS LAST, CASE priority WHEN 'critical' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 WHEN 'low' THEN 4 END, created_at ASC
@@ -1373,7 +1394,7 @@ class TaskStore:
 
         try:
             result = conn.execute("""
-                SELECT id, parent_id, status, priority, title, content, comment, tags, created_at, start_at, finish_at, content_hash, estimate, "order", time_spent, parallel
+                SELECT id, parent_id, status, priority, title, content, comment, tags, created_at, start_at, finish_at, content_hash, estimate, "order", time_spent, parallel, tag_variants
                 FROM tasks
                 ORDER BY created_at DESC
                 LIMIT 1
@@ -1409,7 +1430,7 @@ class TaskStore:
         try:
             # First check for in_progress tasks
             in_progress = conn.execute("""
-                SELECT id, parent_id, status, priority, title, content, comment, tags, created_at, start_at, finish_at, content_hash, estimate, "order", time_spent, parallel
+                SELECT id, parent_id, status, priority, title, content, comment, tags, created_at, start_at, finish_at, content_hash, estimate, "order", time_spent, parallel, tag_variants
                 FROM tasks
                 WHERE status = ?
                 ORDER BY "order" ASC NULLS LAST, created_at ASC
@@ -1433,7 +1454,7 @@ class TaskStore:
             if last_finished:
                 # Get first pending task created after last finished
                 next_pending = conn.execute("""
-                    SELECT id, parent_id, status, priority, title, content, comment, tags, created_at, start_at, finish_at, content_hash, estimate, "order", time_spent, parallel
+                    SELECT id, parent_id, status, priority, title, content, comment, tags, created_at, start_at, finish_at, content_hash, estimate, "order", time_spent, parallel, tag_variants
                     FROM tasks
                     WHERE status = ? AND created_at > ?
                     ORDER BY "order" ASC NULLS LAST, CASE priority WHEN 'critical' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 WHEN 'low' THEN 4 END, created_at ASC
@@ -1445,7 +1466,7 @@ class TaskStore:
 
             # No completed tasks or no pending after completed, get first pending
             first_pending = conn.execute("""
-                SELECT id, parent_id, status, priority, title, content, comment, tags, created_at, start_at, finish_at, content_hash, estimate, "order", time_spent, parallel
+                SELECT id, parent_id, status, priority, title, content, comment, tags, created_at, start_at, finish_at, content_hash, estimate, "order", time_spent, parallel, tag_variants
                 FROM tasks
                 WHERE status = ?
                 ORDER BY "order" ASC NULLS LAST, CASE priority WHEN 'critical' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 WHEN 'low' THEN 4 END, created_at ASC
@@ -1471,7 +1492,8 @@ class TaskStore:
         parent_id: int = None,
         tags: List[str] = None,
         ids: List[int] = None,
-        embedding_model: Optional[EmbeddingModel] = None
+        embedding_model: Optional[EmbeddingModel] = None,
+        use_idf_rerank: bool = True
     ) -> Tuple[List[Task], int]:
         """
         Search tasks using vector similarity or list all with filters.
@@ -1485,6 +1507,7 @@ class TaskStore:
             tags: Optional list of tags to filter by (OR logic - matches if ANY tag present)
             ids: Optional list of task IDs to filter by (AND logic with other filters)
             embedding_model: Optional pre-loaded embedding model (for async callers, only used if query provided)
+            use_idf_rerank: If True, apply IDF-based reranking for vector search results (default: True)
 
         Returns:
             Tuple of (List of Task objects, total count matching filters)
@@ -1552,7 +1575,7 @@ class TaskStore:
                 # Build search query
                 base_query = """
                     SELECT
-                        t.id, t.parent_id, t.status, t.priority, t.title, t.content, t.comment, t.tags, t.created_at, t.start_at, t.finish_at, t.content_hash, t.estimate, t."order", t.time_spent, t.parallel,
+                        t.id, t.parent_id, t.status, t.priority, t.title, t.content, t.comment, t.tags, t.created_at, t.start_at, t.finish_at, t.content_hash, t.estimate, t."order", t.time_spent, t.parallel, t.tag_variants,
                         vec_distance_cosine(v.embedding, ?) as distance
                     FROM tasks t
                     JOIN task_vectors v ON t.id = v.rowid
@@ -1609,7 +1632,7 @@ class TaskStore:
             else:
                 # No query, just list with filters
                 base_query = """
-                    SELECT id, parent_id, status, priority, title, content, comment, tags, created_at, start_at, finish_at, content_hash, estimate, "order", time_spent, parallel
+                    SELECT id, parent_id, status, priority, title, content, comment, tags, created_at, start_at, finish_at, content_hash, estimate, "order", time_spent, parallel, tag_variants
                     FROM tasks
                 """
 
@@ -1656,10 +1679,34 @@ class TaskStore:
 
             # Format results
             tasks = []
-            for row in results:
-                # Exclude distance column if present (vector search)
-                task_row = row[:-1] if query else row
-                tasks.append(Task.from_db_row(task_row))
+
+            if query and use_idf_rerank:
+                from .normalization import TagNormalizer
+                tag_weights = self.get_tag_weights()
+                normalizer = TagNormalizer(None)
+                scored_results = []
+                for row in results:
+                    task_row = row[:-1]
+                    distance = row[-1]
+                    task = Task.from_db_row(task_row)
+                    tag_boost = 1.0
+                    if task.tags:
+                        for tag in task.tags:
+                            classification = normalizer.classify_tag(tag)
+                            tag_boost += classification['boost'] * 0.1
+                            if tag in tag_weights:
+                                tag_boost += tag_weights[tag] * 0.05
+                    if task.tag_variants:
+                        for variant in task.tag_variants:
+                            tag_boost += 0.02
+                    adjusted_score = distance / tag_boost
+                    scored_results.append((adjusted_score, task))
+                scored_results.sort(key=lambda x: x[0])
+                tasks = [task for _, task in scored_results]
+            else:
+                for row in results:
+                    task_row = row[:-1] if query else row
+                    tasks.append(Task.from_db_row(task_row))
 
             return (tasks, total_count)
 
@@ -1707,6 +1754,401 @@ class TaskStore:
 
         except Exception as e:
             raise RuntimeError(f"Failed to get unique tags: {e}")
+        finally:
+            conn.close()
+
+    def get_all_tags_with_counts(self) -> Dict[str, int]:
+        """
+        Get all unique tags with their usage counts.
+
+        Returns:
+            Dict[str, int]: Mapping of tag -> count (number of tasks using this tag)
+        """
+        self._ensure_db_initialized_sync()
+        try:
+            conn = self._get_connection()
+        except Exception as e:
+            raise RuntimeError(f"Failed to get tags: {e}")
+
+        try:
+            results = conn.execute("""
+                SELECT tags
+                FROM tasks
+                WHERE tags IS NOT NULL AND tags != '[]'
+            """).fetchall()
+
+            tag_counts: Dict[str, int] = {}
+            for row in results:
+                if row[0]:
+                    try:
+                        tags_list = json.loads(row[0])
+                        if isinstance(tags_list, list):
+                            for tag in tags_list:
+                                if tag:
+                                    tag_counts[tag] = tag_counts.get(tag, 0) + 1
+                    except (json.JSONDecodeError, TypeError):
+                        continue
+
+            return tag_counts
+
+        except Exception as e:
+            raise RuntimeError(f"Failed to get tag counts: {e}")
+        finally:
+            conn.close()
+
+    def get_tag_frequencies(self) -> Dict[str, Dict[str, Any]]:
+        """
+        Get tag frequencies with IDF weights for search ranking.
+
+        Returns:
+            Dict[str, Dict]: Mapping of tag -> {count, frequency, idf_weight}
+        """
+        self._ensure_db_initialized_sync()
+        try:
+            conn = self._get_connection()
+        except Exception as e:
+            raise RuntimeError(f"Failed to get tag frequencies: {e}")
+
+        try:
+            total_tasks = conn.execute("SELECT COUNT(*) FROM tasks").fetchone()[0]
+
+            if total_tasks == 0:
+                return {}
+
+            results = conn.execute("""
+                SELECT tags
+                FROM tasks
+                WHERE tags IS NOT NULL AND tags != '[]'
+            """).fetchall()
+
+            tag_counts: Dict[str, int] = {}
+            for row in results:
+                if row[0]:
+                    try:
+                        tags_list = json.loads(row[0])
+                        if isinstance(tags_list, list):
+                            for tag in tags_list:
+                                if tag:
+                                    tag_counts[tag] = tag_counts.get(tag, 0) + 1
+                    except (json.JSONDecodeError, TypeError):
+                        continue
+
+            tag_frequencies: Dict[str, Dict[str, Any]] = {}
+            for tag, count in tag_counts.items():
+                frequency = count / total_tasks
+                idf_weight = 1.0 / math.log(1 + count)
+                tag_frequencies[tag] = {
+                    "count": count,
+                    "frequency": round(frequency, 4),
+                    "idf_weight": round(idf_weight, 4)
+                }
+
+            return tag_frequencies
+
+        except Exception as e:
+            raise RuntimeError(f"Failed to get tag frequencies: {e}")
+        finally:
+            conn.close()
+
+    def get_tag_weights(self) -> Dict[str, float]:
+        """
+        Get IDF weights for all tags (simplified for ranking).
+
+        Returns:
+            Dict[str, float]: Mapping of tag -> idf_weight
+        """
+        frequencies = self.get_tag_frequencies()
+        return {tag: data["idf_weight"] for tag, data in frequencies.items()}
+
+    # =========================================================================
+    # Canonical Tag Management
+    # =========================================================================
+
+    def get_canonical_mappings(self) -> Dict[str, str]:
+        """
+        Get all canonical tag mappings from database.
+
+        Returns:
+            Dict[str, str]: Mapping of variant_tag -> canonical_tag
+        """
+        self._ensure_db_initialized_sync()
+        try:
+            conn = self._get_connection()
+        except Exception as e:
+            raise RuntimeError(f"Failed to get canonical mappings: {e}")
+
+        try:
+            results = conn.execute("""
+                SELECT variant_tag, canonical_tag
+                FROM canonical_tags
+            """).fetchall()
+
+            return {row[0]: row[1] for row in results}
+
+        except Exception as e:
+            raise RuntimeError(f"Failed to get canonical mappings: {e}")
+        finally:
+            conn.close()
+
+    def add_canonical_mapping(self, canonical_tag: str, variant_tag: str) -> Dict[str, Any]:
+        """
+        Add a canonical tag mapping.
+
+        Args:
+            canonical_tag: The canonical (preferred) tag
+            variant_tag: The variant tag to map to canonical
+
+        Returns:
+            Dict with success status and mapping info
+        """
+        canonical_tag = canonical_tag.lower().strip()
+        variant_tag = variant_tag.lower().strip()
+
+        if not canonical_tag or not variant_tag:
+            return {
+                "success": False,
+                "error": "Tags cannot be empty"
+            }
+
+        if canonical_tag == variant_tag:
+            return {
+                "success": False,
+                "error": "Canonical and variant tags cannot be the same"
+            }
+
+        self._ensure_db_initialized_sync()
+        try:
+            conn = self._get_connection()
+        except Exception as e:
+            raise RuntimeError(f"Failed to add canonical mapping: {e}")
+
+        try:
+            now = datetime.now(ZoneInfo(self.timezone)).isoformat()
+
+            existing = conn.execute("""
+                SELECT canonical_tag FROM canonical_tags WHERE variant_tag = ?
+            """, (variant_tag,)).fetchone()
+
+            if existing:
+                return {
+                    "success": False,
+                    "error": f"Variant '{variant_tag}' already mapped to '{existing[0]}'"
+                }
+
+            conn.execute("""
+                INSERT INTO canonical_tags (canonical_tag, variant_tag, created_at)
+                VALUES (?, ?, ?)
+            """, (canonical_tag, variant_tag, now))
+
+            conn.commit()
+
+            return {
+                "success": True,
+                "canonical_tag": canonical_tag,
+                "variant_tag": variant_tag,
+                "message": f"Added mapping: '{variant_tag}' → '{canonical_tag}'"
+            }
+
+        except Exception as e:
+            conn.rollback()
+            raise RuntimeError(f"Failed to add canonical mapping: {e}")
+        finally:
+            conn.close()
+
+    def remove_canonical_mapping(self, variant_tag: str) -> Dict[str, Any]:
+        """
+        Remove a canonical tag mapping.
+
+        Args:
+            variant_tag: The variant tag to remove from mappings
+
+        Returns:
+            Dict with success status
+        """
+        variant_tag = variant_tag.lower().strip()
+
+        self._ensure_db_initialized_sync()
+        try:
+            conn = self._get_connection()
+        except Exception as e:
+            raise RuntimeError(f"Failed to remove canonical mapping: {e}")
+
+        try:
+            cursor = conn.execute("""
+                DELETE FROM canonical_tags WHERE variant_tag = ?
+            """, (variant_tag,))
+
+            conn.commit()
+
+            if cursor.rowcount == 0:
+                return {
+                    "success": False,
+                    "error": f"Mapping for variant '{variant_tag}' not found"
+                }
+
+            return {
+                "success": True,
+                "variant_tag": variant_tag,
+                "message": f"Removed mapping for '{variant_tag}'"
+            }
+
+        except Exception as e:
+            conn.rollback()
+            raise RuntimeError(f"Failed to remove canonical mapping: {e}")
+        finally:
+            conn.close()
+
+    def get_all_canonical_tags(self) -> List[Dict[str, Any]]:
+        """
+        Get all canonical tags with their variants grouped.
+
+        Returns:
+            List of dicts with canonical_tag and variants list
+        """
+        self._ensure_db_initialized_sync()
+        try:
+            conn = self._get_connection()
+        except Exception as e:
+            raise RuntimeError(f"Failed to get canonical tags: {e}")
+
+        try:
+            results = conn.execute("""
+                SELECT canonical_tag, variant_tag, created_at
+                FROM canonical_tags
+                ORDER BY canonical_tag, variant_tag
+            """).fetchall()
+
+            grouped: Dict[str, Dict[str, Any]] = {}
+            for row in results:
+                canonical, variant, created_at = row
+                if canonical not in grouped:
+                    grouped[canonical] = {
+                        "canonical_tag": canonical,
+                        "variants": []
+                    }
+                grouped[canonical]["variants"].append(variant)
+
+            return list(grouped.values())
+
+        except Exception as e:
+            raise RuntimeError(f"Failed to get canonical tags: {e}")
+        finally:
+            conn.close()
+
+    def migrate_tags(self, mapping: Dict[str, str], embedding_model: Optional[EmbeddingModel] = None) -> Dict[str, Any]:
+        """
+        Migrate tags according to a mapping (variant -> canonical).
+        
+        Stores original tags in tag_variants for alias scent / reranking.
+
+        Args:
+            mapping: Dict mapping old_tag -> new_tag
+            embedding_model: Optional pre-loaded embedding model (for async callers)
+
+        Returns:
+            Dict with migration results:
+                - success: True if migration completed
+                - tasks_updated: Number of tasks modified
+                - tags_replaced: Number of individual tag replacements
+                - mapping: The mapping used
+        """
+        if not mapping:
+            return {
+                "success": True,
+                "tasks_updated": 0,
+                "tags_replaced": 0,
+                "mapping": {},
+                "message": "No mapping provided, nothing to migrate"
+            }
+
+        self._ensure_db_initialized_sync()
+        model = embedding_model or self._get_embedding_model_sync()
+
+        try:
+            conn = self._get_connection()
+        except Exception as e:
+            raise RuntimeError(f"Failed to migrate tags: {e}")
+
+        try:
+            results = conn.execute("""
+                SELECT id, tags, tag_variants
+                FROM tasks
+                WHERE tags IS NOT NULL AND tags != '[]'
+            """).fetchall()
+
+            tasks_updated = 0
+            tags_replaced = 0
+            tasks_to_update = []
+
+            for row in results:
+                task_id = row[0]
+                try:
+                    tags_list = json.loads(row[1]) if row[1] else []
+                except (json.JSONDecodeError, TypeError):
+                    tags_list = []
+
+                try:
+                    existing_variants = json.loads(row[2]) if row[2] else []
+                except (json.JSONDecodeError, TypeError):
+                    existing_variants = []
+
+                if not isinstance(tags_list, list):
+                    continue
+
+                new_tags = []
+                new_variants = list(existing_variants)
+                changed = False
+
+                for tag in tags_list:
+                    if tag in mapping:
+                        new_tag = mapping[tag]
+                        if new_tag not in new_tags:
+                            new_tags.append(new_tag)
+                        if tag not in new_variants:
+                            new_variants.append(tag)
+                        tags_replaced += 1
+                        changed = True
+                    elif tag not in new_tags:
+                        new_tags.append(tag)
+
+                if changed:
+                    tasks_to_update.append((task_id, new_tags, new_variants))
+
+            for task_id, new_tags, new_variants in tasks_to_update:
+                cursor = conn.execute(
+                    "SELECT title, content FROM tasks WHERE id = ?",
+                    (task_id,)
+                )
+                task_row = cursor.fetchone()
+                if task_row:
+                    title, content = task_row
+                    combined = f"{title}\n{content}\n{' '.join(new_tags)}"
+                    embedding = model.encode_single(combined)
+                    embedding_blob = sqlite_vec.serialize_float32(embedding)
+
+                    conn.execute(
+                        "UPDATE tasks SET tags = ?, tag_variants = ? WHERE id = ?",
+                        (json.dumps(new_tags), json.dumps(new_variants), task_id)
+                    )
+                    conn.execute(
+                        "UPDATE task_vectors SET embedding = ? WHERE rowid = ?",
+                        (embedding_blob, task_id)
+                    )
+                    tasks_updated += 1
+
+            conn.commit()
+
+            return {
+                "success": True,
+                "tasks_updated": tasks_updated,
+                "tags_replaced": tags_replaced,
+                "mapping": mapping,
+                "message": f"Migrated {tags_replaced} tags in {tasks_updated} tasks"
+            }
+
+        except Exception as e:
+            conn.rollback()
+            raise RuntimeError(f"Failed to migrate tags: {e}")
         finally:
             conn.close()
 

@@ -198,6 +198,7 @@ class Task:
     finish_at: Optional[datetime] = None
     content_hash: Optional[str] = None
     tags: List[str] = None
+    tag_variants: List[str] = None
     estimate: Optional[float] = None
     order: Optional[int] = None
     time_spent: float = 0.0
@@ -208,6 +209,8 @@ class Task:
         """Initialize default values"""
         if self.tags is None:
             self.tags = []
+        if self.tag_variants is None:
+            self.tag_variants = []
         if self.created_at is None:
             self.created_at = datetime.utcnow()
 
@@ -226,6 +229,7 @@ class Task:
             "finish_at": self.finish_at.isoformat() if self.finish_at else None,
             "content_hash": self.content_hash,
             "tags": self.tags,
+            "tag_variants": self.tag_variants,
             "estimate": self.estimate,
             "order": self.order,
             "time_spent": self.time_spent,
@@ -252,7 +256,8 @@ class Task:
             estimate=float(row[12]) if len(row) > 12 and row[12] is not None else None,
             order=int(row[13]) if len(row) > 13 and row[13] is not None else None,
             time_spent=row[14] if len(row) > 14 else 0.0,
-            parallel=bool(row[15]) if len(row) > 15 and row[15] is not None else False
+            parallel=bool(row[15]) if len(row) > 15 and row[15] is not None else False,
+            tag_variants=json.loads(row[16]) if len(row) > 16 and row[16] else []
         )
 
 

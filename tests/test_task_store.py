@@ -453,3 +453,345 @@ class TestBulkOperations:
         for task_id in task_ids:
             task = task_store.get_task_by_id(task_id)
             assert task is None
+
+
+class TestTagNormalization:
+    """
+    Tests for tag normalization functionality.
+    """
+
+    def test_get_all_tags_with_counts(self, task_store):
+        """Test getting all tags with usage counts."""
+        task_store.create_task(title="Task 1", content="Content", tags=["auth", "backend"])
+        task_store.create_task(title="Task 2", content="Content", tags=["auth", "frontend"])
+        task_store.create_task(title="Task 3", content="Content", tags=["backend", "api"])
+
+        tag_counts = task_store.get_all_tags_with_counts()
+
+        assert tag_counts.get("auth") == 2
+        assert tag_counts.get("backend") == 2
+        assert tag_counts.get("frontend") == 1
+        assert tag_counts.get("api") == 1
+
+    def test_migrate_tags(self, task_store):
+        """Test tag migration with mapping."""
+        task_store.create_task(title="Task 1", content="Content", tags=["auth", "backend"])
+        task_store.create_task(title="Task 2", content="Content", tags=["authentication", "frontend"])
+
+        mapping = {"authentication": "auth"}
+        result = task_store.migrate_tags(mapping)
+
+        assert result['success'] is True
+        assert result['tags_replaced'] == 1
+        assert result['tasks_updated'] == 1
+
+        task1 = task_store.get_task_by_id(1)
+        task2 = task_store.get_task_by_id(2)
+
+        assert "auth" in task1.tags
+        assert "authentication" not in task2.tags
+        assert "auth" in task2.tags
+
+    def test_migrate_tags_empty_mapping(self, task_store):
+        """Test that empty mapping does nothing."""
+        task_store.create_task(title="Task", content="Content", tags=["auth"])
+
+        result = task_store.migrate_tags({})
+
+        assert result['success'] is True
+        assert result['tasks_updated'] == 0
+        assert result['tags_replaced'] == 0
+
+    def test_migrate_tags_preserves_other_tags(self, task_store):
+        """Test that migration preserves non-mapped tags."""
+        task_store.create_task(title="Task", content="Content", tags=["auth", "backend", "api"])
+
+        mapping = {"auth": "authentication"}
+        result = task_store.migrate_tags(mapping)
+
+        assert result['success'] is True
+
+        task = task_store.get_task_by_id(1)
+        assert "authentication" in task.tags
+        assert "backend" in task.tags
+        assert "api" in task.tags
+        assert "auth" not in task.tags
+
+    def test_migrate_tags_stores_variants(self, task_store):
+        """Test that migrate_tags stores original tags in tag_variants."""
+        task_store.create_task(title="Task", content="Content", tags=["auth", "backend"])
+
+        mapping = {"auth": "authentication"}
+        result = task_store.migrate_tags(mapping)
+
+        assert result['success'] is True
+
+        task = task_store.get_task_by_id(1)
+        assert "authentication" in task.tags
+        assert "auth" in task.tag_variants
+
+    def test_migrate_tags_preserves_existing_variants(self, task_store):
+        """Test that existing tag_variants are preserved."""
+        task_store.create_task(title="Task", content="Content", tags=["auth"])
+
+        mapping1 = {"auth": "authentication"}
+        task_store.migrate_tags(mapping1)
+
+        mapping2 = {"backend": "api"}
+        task_store.migrate_tags(mapping2)
+
+        task = task_store.get_task_by_id(1)
+        assert "auth" in task.tag_variants
+
+
+class TestTagVariants:
+    """
+    Tests for tag_variants (alias scent) functionality.
+    """
+
+    def test_new_task_has_empty_variants(self, task_store):
+        """Test that new tasks have empty tag_variants."""
+        result = task_store.create_task(
+            title="Test",
+            content="Content",
+            tags=["api", "backend"]
+        )
+
+        task = task_store.get_task_by_id(result['task_id'])
+        assert task.tag_variants == []
+
+    def test_tag_variants_in_to_dict(self, task_store):
+        """Test that tag_variants is included in to_dict()."""
+        result = task_store.create_task(
+            title="Test",
+            content="Content",
+            tags=["api"]
+        )
+
+        task = task_store.get_task_by_id(result['task_id'])
+        task_dict = task.to_dict()
+
+        assert "tag_variants" in task_dict
+        assert task_dict["tag_variants"] == []
+
+
+class TestCanonicalTagManagement:
+    """
+    Tests for canonical tag management functionality.
+    """
+
+    def test_add_canonical_mapping(self, task_store):
+        """Test adding a canonical tag mapping."""
+        result = task_store.add_canonical_mapping("auth", "authentication")
+
+        assert result['success'] is True
+        assert result['canonical_tag'] == "auth"
+        assert result['variant_tag'] == "authentication"
+
+    def test_add_canonical_mapping_duplicate_variant(self, task_store):
+        """Test that duplicate variant fails."""
+        task_store.add_canonical_mapping("auth", "authentication")
+
+        result = task_store.add_canonical_mapping("login", "authentication")
+
+        assert result['success'] is False
+        assert "already mapped" in result['error']
+
+    def test_add_canonical_mapping_same_tags(self, task_store):
+        """Test that mapping same tag to itself fails."""
+        result = task_store.add_canonical_mapping("auth", "auth")
+
+        assert result['success'] is False
+        assert "cannot be the same" in result['error']
+
+    def test_remove_canonical_mapping(self, task_store):
+        """Test removing a canonical tag mapping."""
+        task_store.add_canonical_mapping("auth", "authentication")
+
+        result = task_store.remove_canonical_mapping("authentication")
+
+        assert result['success'] is True
+
+        mappings = task_store.get_canonical_mappings()
+        assert "authentication" not in mappings
+
+    def test_remove_canonical_mapping_not_found(self, task_store):
+        """Test removing non-existent mapping."""
+        result = task_store.remove_canonical_mapping("nonexistent")
+
+        assert result['success'] is False
+        assert "not found" in result['error']
+
+    def test_get_canonical_mappings(self, task_store):
+        """Test getting all canonical mappings."""
+        task_store.add_canonical_mapping("auth", "authentication")
+        task_store.add_canonical_mapping("auth", "auth-api")
+        task_store.add_canonical_mapping("database", "db")
+
+        mappings = task_store.get_canonical_mappings()
+
+        assert mappings["authentication"] == "auth"
+        assert mappings["auth-api"] == "auth"
+        assert mappings["db"] == "database"
+
+    def test_get_all_canonical_tags(self, task_store):
+        """Test getting canonical tags grouped."""
+        task_store.add_canonical_mapping("auth", "authentication")
+        task_store.add_canonical_mapping("auth", "auth-api")
+        task_store.add_canonical_mapping("database", "db")
+
+        canonical_tags = task_store.get_all_canonical_tags()
+
+        assert len(canonical_tags) == 2
+
+        auth_group = next((g for g in canonical_tags if g['canonical_tag'] == 'auth'), None)
+        assert auth_group is not None
+        assert set(auth_group['variants']) == {"authentication", "auth-api"}
+
+        db_group = next((g for g in canonical_tags if g['canonical_tag'] == 'database'), None)
+        assert db_group is not None
+        assert db_group['variants'] == ["db"]
+
+
+class TestTagValidation:
+    """
+    Tests for tag validation (special characters allowed).
+    """
+
+    def test_colon_in_tag(self, task_store):
+        """Test that colon is allowed in tags."""
+        result = task_store.create_task(
+            title="Test",
+            content="Content",
+            tags=["type:refactor", "priority:high", "domain:api"]
+        )
+
+        task = task_store.get_task_by_id(result['task_id'])
+        assert "type:refactor" in task.tags
+        assert "priority:high" in task.tags
+        assert "domain:api" in task.tags
+
+    def test_space_in_tag(self, task_store):
+        """Test that space is allowed in tags."""
+        result = task_store.create_task(
+            title="Test",
+            content="Content",
+            tags=["rest api", "laravel framework", "php 8"]
+        )
+
+        task = task_store.get_task_by_id(result['task_id'])
+        assert "rest api" in task.tags
+        assert "laravel framework" in task.tags
+        assert "php 8" in task.tags
+
+    def test_dot_in_tag(self, task_store):
+        """Test that dot is allowed in tags."""
+        result = task_store.create_task(
+            title="Test",
+            content="Content",
+            tags=["v2.0", "api.v1", "node.js"]
+        )
+
+        task = task_store.get_task_by_id(result['task_id'])
+        assert "v2.0" in task.tags
+        assert "api.v1" in task.tags
+        assert "node.js" in task.tags
+
+    def test_mixed_special_chars(self, task_store):
+        """Test mixed special characters in tags."""
+        result = task_store.create_task(
+            title="Test",
+            content="Content",
+            tags=["api v2.0", "type:bug fix", "node-js framework"]
+        )
+
+        task = task_store.get_task_by_id(result['task_id'])
+        assert "api v2.0" in task.tags
+        assert "type:bug fix" in task.tags
+        assert "node-js framework" in task.tags
+
+    def test_tags_normalized_to_lowercase(self, task_store):
+        """Test that tags are normalized to lowercase."""
+        result = task_store.create_task(
+            title="Test",
+            content="Content",
+            tags=["LARAVEL", "Type:Refactor", "PHP 8"]
+        )
+
+        task = task_store.get_task_by_id(result['task_id'])
+        assert "laravel" in task.tags
+        assert "type:refactor" in task.tags
+        assert "php 8" in task.tags
+
+    def test_invalid_chars_still_filtered(self, task_store):
+        """Test that truly invalid characters are filtered."""
+        result = task_store.create_task(
+            title="Test",
+            content="Content",
+            tags=["valid", "invalid!@#", "also-valid", "with$money"]
+        )
+
+        task = task_store.get_task_by_id(result['task_id'])
+        assert "valid" in task.tags
+        assert "also-valid" in task.tags
+        assert "invalid!@#" not in task.tags
+        assert "with$money" not in task.tags
+
+
+class TestTagFrequencies:
+    """
+    Tests for tag frequencies and IDF weights.
+    """
+
+    def test_get_tag_frequencies_empty(self, task_store):
+        """Test frequencies with no tasks."""
+        frequencies = task_store.get_tag_frequencies()
+        assert frequencies == {}
+
+    def test_get_tag_frequencies_with_tasks(self, task_store):
+        """Test frequencies calculation."""
+        task_store.create_task(title="T1", content="C1", tags=["api", "backend"])
+        task_store.create_task(title="T2", content="C2", tags=["api", "frontend"])
+        task_store.create_task(title="T3", content="C3", tags=["backend"])
+
+        frequencies = task_store.get_tag_frequencies()
+
+        assert "api" in frequencies
+        assert "backend" in frequencies
+        assert "frontend" in frequencies
+        assert frequencies["api"]["count"] == 2
+        assert frequencies["backend"]["count"] == 2
+        assert frequencies["frontend"]["count"] == 1
+
+    def test_idf_weight_higher_for_rare_tags(self, task_store):
+        """Test that rare tags have higher IDF weight."""
+        task_store.create_task(title="T1", content="C1", tags=["common"])
+        task_store.create_task(title="T2", content="C2", tags=["common"])
+        task_store.create_task(title="T3", content="C3", tags=["common"])
+        task_store.create_task(title="T4", content="C4", tags=["rare"])
+
+        frequencies = task_store.get_tag_frequencies()
+
+        assert frequencies["rare"]["idf_weight"] > frequencies["common"]["idf_weight"]
+
+    def test_get_tag_weights(self, task_store):
+        """Test simplified tag weights."""
+        task_store.create_task(title="T1", content="C1", tags=["api"])
+        task_store.create_task(title="T2", content="C2", tags=["rare"])
+
+        weights = task_store.get_tag_weights()
+
+        assert "api" in weights
+        assert "rare" in weights
+        assert isinstance(weights["api"], float)
+        assert isinstance(weights["rare"], float)
+
+    def test_idf_weight_formula(self, task_store):
+        """Test IDF weight formula: 1 / log(1 + count)."""
+        import math
+        task_store.create_task(title="T1", content="C1", tags=["tag1"])
+
+        frequencies = task_store.get_tag_frequencies()
+
+        expected = 1.0 / math.log(1 + 1)
+        assert abs(frequencies["tag1"]["idf_weight"] - expected) < 0.001

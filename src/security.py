@@ -117,8 +117,8 @@ def validate_tags(tags: List[str]) -> List[str]:
         if isinstance(tag, str):
             try:
                 clean_tag = sanitize_input(tag, Config.MAX_TAG_LENGTH).lower()
-                # Additional tag validation
-                if re.match(r'^[a-z0-9\-_]+$', clean_tag):
+                # Allow: letters, numbers, dash, underscore, colon, space, dot
+                if re.match(r'^[a-z0-9\-_\s:.]+$', clean_tag):
                     if clean_tag and clean_tag not in validated_tags:
                         validated_tags.append(clean_tag)
                 else:

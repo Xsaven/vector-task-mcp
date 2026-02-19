@@ -54,6 +54,30 @@ class EmbeddingModel:
         """Get embedding dimension."""
         return self.model.get_sentence_embedding_dimension()
 
+    def similarity(self, text1: str, text2: str) -> float:
+        """
+        Calculate cosine similarity between two texts.
+
+        Args:
+            text1: First text string
+            text2: Second text string
+
+        Returns:
+            Cosine similarity score (0.0 to 1.0)
+        """
+        embeddings = self.encode([text1, text2])
+
+        vec1 = embeddings[0]
+        vec2 = embeddings[1]
+
+        norm1 = np.linalg.norm(vec1)
+        norm2 = np.linalg.norm(vec2)
+
+        if norm1 == 0 or norm2 == 0:
+            return 0.0
+
+        return float(np.dot(vec1, vec2) / (norm1 * norm2))
+
 
 def get_embedding_model(model_name: str) -> EmbeddingModel:
     """

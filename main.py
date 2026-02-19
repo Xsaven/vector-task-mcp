@@ -24,7 +24,7 @@ Task database stored in: {working_dir}/memory/tasks.db
 
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, List
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 # Add src to path for imports
@@ -36,6 +36,7 @@ from mcp.server.fastmcp import FastMCP
 from src.models import Config
 from src.security import validate_working_dir, SecurityError, validate_task_list_params, validate_tags, validate_task_stats_params
 from src.task_store import TaskStore
+from src.normalization import TagNormalizer
 
 
 def get_working_dir() -> Path:
@@ -717,6 +718,576 @@ NEVER update parent task status. System propagates automatically. Only update YO
             return {
                 "success": False,
                 "error": "Failed to get statistics",
+                "message": str(e)
+            }
+
+    # ===============================================================================
+    # TAG FREQUENCIES / IDF WEIGHTS
+    # ===============================================================================
+
+    @mcp.tool()
+    async def tag_frequencies() -> dict[str, Any]:
+        """
+        Get tag frequencies with IDF weights for search ranking.
+
+        IDF (Inverse Document Frequency) weight formula:
+            idf_weight = 1 / log(1 + freq)
+
+        - Rare tags (low frequency) → higher weight → stronger signal
+        - Common tags (high frequency) → lower weight → weaker signal
+
+        Returns:
+            Dict with tag frequencies, counts, and IDF weights
+        """
+        try:
+            await task_store._ensure_db_initialized_async()
+
+            frequencies = task_store.get_tag_frequencies()
+
+            sorted_tags = sorted(frequencies.items(), key=lambda x: x[1]["count"], reverse=True)
+
+            return {
+                "success": True,
+                "tags": dict(sorted_tags),
+                "total_unique_tags": len(frequencies),
+                "message": f"Retrieved {len(frequencies)} tags with frequencies and IDF weights"
+            }
+
+        except Exception as e:
+            return {
+                "success": False,
+                "error": "Failed to get tag frequencies",
+                "message": str(e)
+            }
+
+    @mcp.tool()
+    async def tag_weights() -> dict[str, Any]:
+        """
+        Get IDF weights for all tags (simplified for ranking).
+
+        Use for search ranking: multiply tag match by idf_weight.
+        Rare tags boost relevance more than common tags.
+
+        Returns:
+            Dict mapping tag -> idf_weight
+        """
+        try:
+            await task_store._ensure_db_initialized_async()
+
+            weights = task_store.get_tag_weights()
+
+            sorted_weights = sorted(weights.items(), key=lambda x: x[1], reverse=True)
+
+            return {
+                "success": True,
+                "weights": dict(sorted_weights),
+                "total_tags": len(weights),
+                "message": f"Retrieved IDF weights for {len(weights)} tags"
+            }
+
+        except Exception as e:
+            return {
+                "success": False,
+                "error": "Failed to get tag weights",
+                "message": str(e)
+            }
+
+    @mcp.tool()
+    async def tag_classify(tag: str) -> dict[str, Any]:
+        """
+        Classify a tag by boost level for search ranking.
+
+        Boost levels:
+        - high (1.5): Specific tags like vendor:*, module:*, service:*
+        - medium (1.0): Facet tags (domain:*, type:*) and specific tags
+        - low (0.5): General/common tags (api, backend, test)
+        - filter_only (0.1): Filter-only tags (status:*, priority:*)
+
+        Args:
+            tag: Tag string to classify
+
+        Returns:
+            Dict with level, boost, and reason
+        """
+        try:
+            from src.normalization import TagNormalizer
+
+            normalizer = TagNormalizer(None)
+            classification = normalizer.classify_tag(tag)
+
+            return {
+                "success": True,
+                "tag": tag,
+                "level": classification['level'],
+                "boost": classification['boost'],
+                "reason": classification['reason']
+            }
+
+        except Exception as e:
+            return {
+                "success": False,
+                "error": "Failed to classify tag",
+                "message": str(e)
+            }
+
+    @mcp.tool()
+    async def tags_classify_batch(tags: List[str]) -> dict[str, Any]:
+        """
+        Classify multiple tags by boost level.
+
+        Args:
+            tags: List of tag strings
+
+        Returns:
+            Dict with tags grouped by boost level
+        """
+        try:
+            from src.normalization import TagNormalizer
+
+            normalizer = TagNormalizer(None)
+            classified = normalizer.classify_tags(tags)
+
+            return {
+                "success": True,
+                "high": classified['high'],
+                "medium": classified['medium'],
+                "low": classified['low'],
+                "filter_only": classified['filter_only'],
+                "total_tags": len(tags),
+                "message": f"Classified {len(tags)} tags"
+            }
+
+        except Exception as e:
+            return {
+                "success": False,
+                "error": "Failed to classify tags",
+                "message": str(e)
+            }
+
+    @mcp.tool()
+    async def search_explain(query: str, limit: int = 5) -> dict[str, Any]:
+        """
+        Search with ranking explanation.
+
+        Shows how IDF weights, tag classification, and tag_variants
+        affect search ranking.
+
+        Args:
+            query: Search query
+            limit: Max results (default 5)
+
+        Returns:
+            Dict with results and ranking explanation
+        """
+        try:
+            await task_store._ensure_db_initialized_async()
+
+            model = await task_store.get_embedding_model_async()
+
+            tasks, total = task_store.search_tasks(
+                query=query,
+                limit=limit,
+                embedding_model=model,
+                use_idf_rerank=True
+            )
+
+            from src.normalization import TagNormalizer
+            normalizer = TagNormalizer(None)
+            tag_weights = task_store.get_tag_weights()
+
+            explained = []
+            for i, task in enumerate(tasks):
+                explanation = {
+                    "rank": i + 1,
+                    "task_id": task.id,
+                    "title": task.title,
+                    "tags": task.tags,
+                    "tag_variants": task.tag_variants,
+                    "tag_classifications": [],
+                    "variant_boost": len(task.tag_variants) * 0.02 if task.tag_variants else 0
+                }
+
+                for tag in task.tags:
+                    classification = normalizer.classify_tag(tag)
+                    idf = tag_weights.get(tag, 0)
+                    explanation["tag_classifications"].append({
+                        "tag": tag,
+                        "level": classification['level'],
+                        "boost": classification['boost'],
+                        "idf_weight": round(idf, 3)
+                    })
+
+                explained.append(explanation)
+
+            return {
+                "success": True,
+                "query": query,
+                "results": explained,
+                "total_matching": total,
+                "message": f"Found {total} results, showing top {len(explained)} with ranking explanation"
+            }
+
+        except Exception as e:
+            return {
+                "success": False,
+                "error": "Failed to search",
+                "message": str(e)
+            }
+
+    # ===============================================================================
+    # TAG NORMALIZATION TOOLS
+    # ===============================================================================
+
+    @mcp.tool()
+    async def tag_normalize_preview(threshold: float = 0.90, require_predefined: bool = False) -> dict[str, Any]:
+        """
+        Preview tag normalization suggestions using vector similarity.
+
+        Analyzes all tags and groups semantically similar ones, suggesting canonical forms.
+        Does NOT modify any data - use tag_normalize_apply to execute changes.
+
+        Predefined canonical mappings (from canonical_tag_add) take priority over vector grouping.
+
+        Hard Guards (block merging regardless of similarity):
+        - Version guard: tags with different versions never merge (v1 vs v2, php8 vs php7)
+        - Numeric guard: tags with different numbers never merge (api1 vs api2)
+
+        Substring Boost:
+        - If one tag is substring of another AND both have same version context → auto-merge
+        - Example: "laravel" ⊂ "laravel framework" → merge (0.8959 boosted to 0.91)
+
+        Drift Prevention:
+        - Set require_predefined=True to ONLY see predefined mappings (canonical freeze)
+
+        Args:
+            threshold: Similarity threshold for grouping (0.0-1.0, default: 0.90)
+                       0.90 = strict merge (recommended for auto-merge)
+                       0.85 = suggest only (more aggressive grouping)
+            require_predefined: If True, ONLY show predefined canonical mappings (drift prevention)
+
+        Returns:
+            Dict with:
+                - groups: List of tag groups with canonical form and variants
+                - total_tags: Current total unique tags
+                - unique_tags_after: Unique tags after normalization
+                - tags_to_merge: Number of tags that would be merged
+                - predefined_mappings_used: Number of predefined mappings applied
+        """
+        try:
+            await task_store._ensure_db_initialized_async()
+
+            model = await task_store.get_embedding_model_async()
+
+            canonical_mappings = task_store.get_canonical_mappings()
+
+            normalizer = TagNormalizer(model, threshold=threshold, canonical_mappings=canonical_mappings)
+
+            tag_counts = task_store.get_all_tags_with_counts()
+
+            if not tag_counts:
+                return {
+                    "success": True,
+                    "groups": [],
+                    "total_tags": 0,
+                    "unique_tags_after": 0,
+                    "tags_to_merge": 0,
+                    "predefined_mappings": len(canonical_mappings),
+                    "message": "No tags found in database"
+                }
+
+            all_tags = list(tag_counts.keys())
+            preview = normalizer.preview_normalization(all_tags, tag_counts)
+
+            if require_predefined:
+                preview.groups = [g for g in preview.groups if g.source == "predefined"]
+                preview.tags_to_merge = sum(len(g.variants) for g in preview.groups)
+                preview.unique_tags_after = preview.total_tags - preview.tags_to_merge
+
+            groups_data = []
+            for group in preview.groups:
+                groups_data.append({
+                    "canonical": group.canonical,
+                    "variants": group.variants,
+                    "similarity": group.similarity,
+                    "source": group.source,
+                    "canonical_count": tag_counts.get(group.canonical, 0),
+                    "total_count": tag_counts.get(group.canonical, 0) + sum(tag_counts.get(v, 0) for v in group.variants)
+                })
+
+            return {
+                "success": True,
+                "groups": groups_data,
+                "total_tags": preview.total_tags,
+                "unique_tags_after": preview.unique_tags_after,
+                "tags_to_merge": preview.tags_to_merge,
+                "predefined_mappings_used": preview.predefined_mappings_used,
+                "require_predefined": require_predefined,
+                "threshold": threshold,
+                "message": f"Found {len(groups_data)} tag groups ({preview.predefined_mappings_used} predefined). {preview.tags_to_merge} tags can be merged (reducing from {preview.total_tags} to {preview.unique_tags_after} unique tags)" + (" (require_predefined=True)" if require_predefined else "")
+            }
+
+        except Exception as e:
+            return {
+                "success": False,
+                "error": "Failed to preview normalization",
+                "message": str(e)
+            }
+
+    @mcp.tool()
+    async def tag_normalize_apply(threshold: float = 0.90, dry_run: bool = False, require_predefined: bool = False) -> dict[str, Any]:
+        """
+        Apply tag normalization using vector similarity.
+
+        Merges semantically similar tags into canonical forms. Use tag_normalize_preview first
+        to see what changes will be made.
+
+        Predefined canonical mappings (from canonical_tag_add) take priority over vector grouping.
+
+        Hard Guards (block merging regardless of similarity):
+        - Version guard: tags with different versions never merge (v1 vs v2, php8 vs php7)
+        - Numeric guard: tags with different numbers never merge (api1 vs api2)
+
+        Substring Boost:
+        - If one tag is substring of another AND both have same version context → auto-merge
+        - Example: "laravel" ⊂ "laravel framework" → merge (0.8959 boosted to 0.91)
+
+        Drift Prevention:
+        - Set require_predefined=True to ONLY apply predefined mappings (canonical freeze)
+        - Vector-based grouping will be ignored
+
+        Selection of canonical tag (for vector-grouped tags):
+            1. Most frequently used tag in group
+            2. Longest tag (if counts equal)
+
+        Args:
+            threshold: Similarity threshold for grouping (0.0-1.0, default: 0.90)
+                       0.90 = strict merge (recommended for auto-merge)
+                       0.85 = suggest only (more aggressive grouping)
+            dry_run: If True, preview changes without applying
+            require_predefined: If True, ONLY use predefined canonical mappings (drift prevention)
+
+        Returns:
+            Dict with:
+                - success: True if completed
+                - tasks_updated: Number of tasks modified
+                - tags_replaced: Number of individual tag replacements
+                - mapping: Dict of old_tag -> new_tag
+        """
+        try:
+            await task_store._ensure_db_initialized_async()
+
+            model = await task_store.get_embedding_model_async()
+
+            canonical_mappings = task_store.get_canonical_mappings()
+
+            normalizer = TagNormalizer(model, threshold=threshold, canonical_mappings=canonical_mappings)
+
+            tag_counts = task_store.get_all_tags_with_counts()
+
+            if not tag_counts:
+                return {
+                    "success": True,
+                    "tasks_updated": 0,
+                    "tags_replaced": 0,
+                    "mapping": {},
+                    "dry_run": dry_run,
+                    "predefined_mappings_used": 0,
+                    "message": "No tags found in database"
+                }
+
+            all_tags = list(tag_counts.keys())
+            preview = normalizer.preview_normalization(all_tags, tag_counts)
+
+            if require_predefined:
+                vector_groups = [g for g in preview.groups if g.source == "vector"]
+                if vector_groups:
+                    preview.groups = [g for g in preview.groups if g.source == "predefined"]
+                    preview.tags_to_merge = sum(len(g.variants) for g in preview.groups)
+                    preview.unique_tags_after = preview.total_tags - preview.tags_to_merge
+
+            if preview.tags_to_merge == 0:
+                return {
+                    "success": True,
+                    "tasks_updated": 0,
+                    "tags_replaced": 0,
+                    "mapping": {},
+                    "dry_run": dry_run,
+                    "require_predefined": require_predefined,
+                    "predefined_mappings_used": preview.predefined_mappings_used,
+                    "message": "No tags to merge." + (" (require_predefined=True, only predefined mappings allowed)" if require_predefined else "")
+                }
+
+            mapping = normalizer.get_mapping(preview)
+
+            if dry_run:
+                return {
+                    "success": True,
+                    "dry_run": True,
+                    "require_predefined": require_predefined,
+                    "tasks_updated": 0,
+                    "tags_replaced": preview.tags_to_merge,
+                    "mapping": mapping,
+                    "predefined_mappings_used": preview.predefined_mappings_used,
+                    "message": f"DRY RUN: Would merge {preview.tags_to_merge} tags ({preview.predefined_mappings_used} from predefined mappings)" + (" (require_predefined=True)" if require_predefined else "")
+                }
+
+            result = task_store.migrate_tags(mapping, embedding_model=model)
+
+            result["dry_run"] = False
+            result["require_predefined"] = require_predefined
+            result["threshold"] = threshold
+            result["unique_tags_before"] = preview.total_tags
+            result["unique_tags_after"] = preview.unique_tags_after
+            result["predefined_mappings_used"] = preview.predefined_mappings_used
+
+            return result
+
+        except Exception as e:
+            return {
+                "success": False,
+                "error": "Failed to apply normalization",
+                "message": str(e)
+            }
+
+    @mcp.tool()
+    async def canonical_tag_add(canonical_tag: str, variant_tag: str) -> dict[str, Any]:
+        """
+        Add a canonical tag mapping for tag normalization.
+
+        When tag_normalize_apply is called, variant_tag will be replaced with canonical_tag.
+
+        Args:
+            canonical_tag: The canonical (preferred) tag form
+            variant_tag: A variant tag to map to the canonical form
+
+        Returns:
+            Dict with success status and mapping info
+        """
+        try:
+            await task_store._ensure_db_initialized_async()
+
+            result = task_store.add_canonical_mapping(canonical_tag, variant_tag)
+            return result
+
+        except Exception as e:
+            return {
+                "success": False,
+                "error": "Failed to add canonical mapping",
+                "message": str(e)
+            }
+
+    @mcp.tool()
+    async def canonical_tag_remove(variant_tag: str) -> dict[str, Any]:
+        """
+        Remove a canonical tag mapping.
+
+        Args:
+            variant_tag: The variant tag to remove from mappings
+
+        Returns:
+            Dict with success status
+        """
+        try:
+            await task_store._ensure_db_initialized_async()
+
+            result = task_store.remove_canonical_mapping(variant_tag)
+            return result
+
+        except Exception as e:
+            return {
+                "success": False,
+                "error": "Failed to remove canonical mapping",
+                "message": str(e)
+            }
+
+    @mcp.tool()
+    async def canonical_tag_list() -> dict[str, Any]:
+        """
+        List all canonical tag mappings.
+
+        Returns:
+            Dict with list of canonical tags and their variants
+        """
+        try:
+            await task_store._ensure_db_initialized_async()
+
+            canonical_tags = task_store.get_all_canonical_tags()
+
+            return {
+                "success": True,
+                "canonical_tags": canonical_tags,
+                "total_mappings": sum(len(ct["variants"]) for ct in canonical_tags),
+                "total_canonicals": len(canonical_tags),
+                "message": f"Found {len(canonical_tags)} canonical tags with {sum(len(ct['variants']) for ct in canonical_tags)} variant mappings"
+            }
+
+        except Exception as e:
+            return {
+                "success": False,
+                "error": "Failed to list canonical tags",
+                "message": str(e)
+            }
+
+    @mcp.tool()
+    async def tag_similarity(tag1: str, tag2: str) -> dict[str, Any]:
+        """
+        Calculate semantic similarity between two tags using embeddings.
+
+        Args:
+            tag1: First tag
+            tag2: Second tag
+
+        Returns:
+            Dict with similarity score (0.0 to 1.0)
+        """
+        try:
+            await task_store._ensure_db_initialized_async()
+
+            model = await task_store.get_embedding_model_async()
+
+            similarity = model.similarity(tag1, tag2)
+
+            return {
+                "success": True,
+                "tag1": tag1,
+                "tag2": tag2,
+                "similarity": round(similarity, 4),
+                "message": f"Similarity between '{tag1}' and '{tag2}': {similarity:.4f}"
+            }
+
+        except Exception as e:
+            return {
+                "success": False,
+                "error": "Failed to calculate similarity",
+                "message": str(e)
+            }
+
+    @mcp.tool()
+    async def get_canonical_tags() -> dict[str, Any]:
+        """
+        Get all canonical tags (semantic tag clusters).
+
+        Canonical tags are the normalized form of semantically similar tags.
+        Returns list of canonical tags from predefined mappings only.
+        """
+        try:
+            await task_store._ensure_db_initialized_async()
+
+            canonical_tags = task_store.get_all_canonical_tags()
+
+            tags_list = [ct["canonical_tag"] for ct in canonical_tags]
+
+            return {
+                "success": True,
+                "tags": tags_list,
+                "count": len(tags_list),
+                "message": f"Retrieved {len(tags_list)} canonical tags"
+            }
+
+        except Exception as e:
+            return {
+                "success": False,
+                "error": "Failed to retrieve canonical tags",
                 "message": str(e)
             }
 
