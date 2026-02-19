@@ -90,17 +90,24 @@ def create_server() -> FastMCP:
     # Create FastMCP server
     mcp = FastMCP(
         Config.SERVER_NAME,
-        instructions="""Hierarchical task manager with vector search.
+        instructions="""
+╔══════════════════════════════════════════════════════════════════════════════╗
+║  CRITICAL: Call cookbook() IMMEDIATELY. Default = init (first read).        ║
+║  Without it, you operate BLIND - no workflows, no patterns, no docs.        ║
+╚══════════════════════════════════════════════════════════════════════════════╝
 
-Status propagation:
-- child→pending ⟹ parent→pending (immediate, even if parent was completed)
-- ALL children→finished ⟹ parent→completed (auto, recursive up)
+YOUR LIFELINE: cookbook() tool - ONE tool, 5 modes:
+- cookbook() → init (quick start + resources overview)
+- cookbook(include="docs", level=1) → usage guide
+- cookbook(include="cases") → all use cases
+- cookbook(include="categories") → list case categories
+- cookbook(include="all", level=2) → everything
 
-Example: Parent[completed] + Child1[completed] + Child2[completed].
-Validation fails → Child2→pending ⟹ Parent→pending.
-Fix → Child2→completed ⟹ all finished ⟹ Parent→completed again.
+Status propagation (AUTOMATIC, never manual):
+- child→pending ⟹ parent→pending (immediate)
+- ALL children→finished ⟹ parent→completed (recursive)
 
-NEVER update parent task status. System propagates automatically. Only update YOUR assigned task."""
+NEVER update parent task status. System propagates automatically."""
     )
     
     # ===============================================================================
@@ -1288,6 +1295,448 @@ NEVER update parent task status. System propagates automatically. Only update YO
             return {
                 "success": False,
                 "error": "Failed to retrieve canonical tags",
+                "message": str(e)
+            }
+
+    # ===============================================================================
+    # COOKBOOK - YOUR LIFELINE FOR THIS MCP
+    # ===============================================================================
+
+    @mcp.tool()
+    async def cookbook(
+        level: int = 0,
+        include: str = "init",
+        case_category: str = None,
+        query: str = None,
+        priority: str = None,
+        cognitive: str = None,
+        strict: str = None,
+        limit: int = 10,
+        offset: int = 0
+    ) -> dict[str, Any]:
+        """
+        ╔═══════════════════════════════════════════════════════════════════════════╗
+        ║  YOUR ESSENTIAL KNOWLEDGE BASE. READ THIS FIRST OR OPERATE BLIND.         ║
+        ║  Contains: docs (4 levels), use cases (18 categories), anti-patterns.      ║
+        ║  Without cookbook(), you have NO workflows, NO patterns, NO best practices.║
+        ╚═══════════════════════════════════════════════════════════════════════════╝
+
+        Contains:
+        - Documentation (4 cumulative levels: quick → usage → extended → developer)
+        - Use Cases (18 categories with real code examples)
+        - Anti-patterns, error handling, parallel execution patterns
+
+        Call cookbook(include="init") FIRST for orientation, then explore as needed.
+
+        Args:
+            level: Verbosity level 0-3 for docs (cumulative, default: 0)
+                - 0: Quick Reference (tools, limits, status flow)
+                - 1: Usage Guide (how it works, patterns, best practices)
+                - 2: Extended Docs (tag normalization, IDF, anti-patterns)
+                - 3: Developer Reference (full parameters, architecture)
+            include: What to return (default: "init")
+                - "init": Essential first-read for orientation (ALWAYS call this first)
+                - "docs": Documentation by level
+                - "cases": Use cases (all or filtered by case_category/query/priority/cognitive/strict)
+                - "all": Documentation + use cases combined
+                - "categories": List of available case category names
+            case_category: Filter by category key(s), comma-separated for OR (e.g., "gates-rules" or "store,search")
+            query: Keyword search in content (text-based, no embeddings)
+                - Case-insensitive keyword matching
+                - Returns sections containing ANY of the keywords
+            priority: Filter by priority markers (comma-separated for OR)
+                - "critical": Only [CRITICAL] content
+                - "high": Only [HIGH] content
+                - "critical,high": Both CRITICAL and HIGH
+            cognitive: Filter by cognitive level tags (comma-separated for OR)
+                - "minimal", "standard", "deep", "exhaustive"
+                - Searches for "cognitive:{level}" in content
+            strict: Filter by strict level tags (comma-separated for OR)
+                - "relaxed", "standard", "strict", "paranoid"
+                - Searches for "strict:{level}" in content
+            limit: Max results to return (default: 10, max: 50)
+            offset: Pagination offset (default: 0)
+
+        Returns:
+            Dict with content based on include parameter
+        """
+        try:
+            import importlib.resources
+            import re
+
+            level = max(0, min(3, level))
+            include = include.lower() if include else "init"
+            valid_includes = ("init", "docs", "cases", "all", "categories")
+            if include not in valid_includes:
+                include = "init"
+            
+            limit = max(1, min(50, limit))
+            offset = max(0, offset)
+
+            result = {
+                "success": True,
+                "level": level,
+                "include": include,
+                "case_category": case_category,
+                "query": query,
+                "priority": priority,
+                "cognitive": cognitive,
+                "strict": strict,
+                "limit": limit,
+                "offset": offset
+            }
+
+            def parse_csv_filter(value):
+                """Parse comma-separated filter values into list of lowercase strings"""
+                if not value:
+                    return []
+                return [v.strip().lower() for v in value.split(',') if v.strip()]
+
+            def filter_by_priority(content, priority_filter):
+                """Filter sections by [CRITICAL] or [HIGH] markers"""
+                if not priority_filter or not content:
+                    return content, 0
+                
+                priorities = parse_csv_filter(priority_filter)
+                if not priorities:
+                    return content, 0
+                
+                sections = re.split(r'\n---+\n', content)
+                matching = []
+                
+                for section in sections:
+                    has_critical = '[CRITICAL]' in section or '### [CRITICAL]' in section
+                    has_high = '[HIGH]' in section or '### [HIGH]' in section
+                    
+                    if 'critical' in priorities and has_critical:
+                        matching.append(section)
+                    elif 'high' in priorities and has_high:
+                        matching.append(section)
+                
+                return "\n\n---\n\n".join(matching) if matching else "", len(matching)
+
+            def filter_by_tag_pattern(content, tag_type, values):
+                """Filter sections containing tag patterns like cognitive:* or strict:*"""
+                if not values or not content:
+                    return content, 0
+                
+                tags = parse_csv_filter(values)
+                if not tags:
+                    return content, 0
+                
+                sections = re.split(r'\n---+\n', content)
+                matching = []
+                
+                for section in sections:
+                    for tag in tags:
+                        pattern = f"{tag_type}:{tag}"
+                        if pattern.lower() in section.lower():
+                            matching.append(section)
+                            break
+                
+                return "\n\n---\n\n".join(matching) if matching else "", len(matching)
+
+            def filter_case_category_csv(raw_cases, category_filter):
+                """Filter cases by one or more category keys (CSV support)"""
+                if not category_filter or not raw_cases:
+                    return raw_cases
+                
+                categories = parse_csv_filter(category_filter)
+                if not categories:
+                    return raw_cases
+                
+                all_matches = []
+                
+                for cat in categories:
+                    key_to_title = cat.replace('-', ' ').title()
+                    pattern = rf'^## {re.escape(key_to_title)}(?: Scenarios)?(?: \([A-Z]+\))?$\n(?:<!-- description: .+? -->\n)?.*?(?=^## |\Z)'
+                    matches = re.findall(pattern, raw_cases, re.MULTILINE | re.DOTALL)
+                    
+                    if not matches:
+                        pattern2 = rf'^## (.*{re.escape(cat.replace("-", " "))}.*) Scenarios$.*?(?=^## .* Scenarios|\Z)'
+                        matches = re.findall(pattern2, raw_cases, re.MULTILINE | re.IGNORECASE | re.DOTALL)
+                    
+                    all_matches.extend(matches)
+                
+                return "\n\n".join(all_matches) if all_matches else ""
+
+            def load_cases_raw():
+                try:
+                    import src
+                    cases_file = importlib.resources.files(src).joinpath('CASES.md')
+                    return cases_file.read_text(encoding='utf-8')
+                except (TypeError, FileNotFoundError, AttributeError, ImportError):
+                    cases_path = Path(__file__).parent / 'src' / 'CASES.md'
+                    if cases_path.exists():
+                        return cases_path.read_text(encoding='utf-8')
+                    return ""
+
+            def load_docs_raw():
+                try:
+                    import src
+                    docs_file = importlib.resources.files(src).joinpath('README_AGENTS.md')
+                    return docs_file.read_text(encoding='utf-8')
+                except (TypeError, FileNotFoundError, AttributeError, ImportError):
+                    docs_path = Path(__file__).parent / 'src' / 'README_AGENTS.md'
+                    if docs_path.exists():
+                        return docs_path.read_text(encoding='utf-8')
+                    return ""
+
+            def parse_categories(content):
+                """Parse categories with keys, names, and descriptions"""
+                if not content:
+                    return []
+                
+                categories = []
+                # Match: ## Name Scenarios\n<!-- description: ... -->
+                pattern = r'^## (.+?)(?: Scenarios)?(?: \([A-Z]+\))?$\n(?:<!-- description: (.+?) -->)?'
+                matches = re.findall(pattern, content, re.MULTILINE)
+                
+                for name, description in matches:
+                    # Generate key: kebab-case
+                    key = re.sub(r'[^\w\s-]', '', name.lower())
+                    key = re.sub(r'[\s_]+', '-', key).strip('-')
+                    
+                    # Clean name (remove "Scenarios" suffix if present)
+                    clean_name = re.sub(r'\s+Scenarios$', '', name)
+                    
+                    categories.append({
+                        "key": key,
+                        "name": clean_name,
+                        "description": description.strip() if description else ""
+                    })
+                
+                return categories
+
+            def search_in_content(content, query_text):
+                """Keyword search in content - returns matching sections"""
+                if not query_text or not content:
+                    return content, 0
+                
+                keywords = [kw.strip().lower() for kw in re.split(r'[\s,]+', query_text) if kw.strip()]
+                if not keywords:
+                    return content, 0
+                
+                sections = re.split(r'\n---+\n|\n## ', content)
+                matching = []
+                
+                for section in sections:
+                    section_lower = section.lower()
+                    if any(kw in section_lower for kw in keywords):
+                        matching.append(section.strip())
+                
+                return matching, len(matching)
+
+            def paginate_sections(sections, limit_val, offset_val):
+                """Paginate section list"""
+                if isinstance(sections, str):
+                    return sections, 1, False
+                total = len(sections)
+                paginated = sections[offset_val:offset_val + limit_val]
+                has_more = (offset_val + limit_val) < total
+                return paginated, total, has_more
+
+            # INIT: Essential first-read for orientation
+            if include == "init":
+                raw_cases = load_cases_raw()
+                categories = parse_categories(raw_cases)
+                category_keys = [c["key"] for c in categories]
+
+                raw_docs = load_docs_raw()
+                tools_count = 22
+                if raw_docs:
+                    tools_match = re.search(r'Total.*?(\d+)\s*tools', raw_docs, re.IGNORECASE)
+                    if tools_match:
+                        tools_count = int(tools_match.group(1))
+
+                return {
+                    "success": True,
+                    "include": "init",
+                    "warning": "This is your FIRST AID KIT. Read carefully before using other tools.",
+                    "essential": {
+                        "what_is_this": "Hierarchical task manager with vector-based semantic search",
+                        "total_tools": tools_count,
+                        "key_tools": {
+                            "task_create": "Create task with title, content, estimate, tags",
+                            "task_update": "Update status, comment, tags (NEVER on parent)",
+                            "task_list": "Search tasks by query/tags/status/parent",
+                            "task_next": "Get next task to work on (smart selection)",
+                            "cookbook": "This tool - your knowledge base"
+                        },
+                        "status_flow": {
+                            "draft": "Not ready for execution",
+                            "pending": "Ready to start",
+                            "in_progress": "Currently working",
+                            "completed": "Implementation done",
+                            "validated": "Passed all quality gates (FINAL)",
+                            "stopped": "Paused/blocked (NOT cancelled)",
+                            "canceled": "Won't do (FINAL)"
+                        },
+                        "critical_rules": [
+                            "NEVER manually update parent status - auto-propagation",
+                            "ALWAYS set estimate when creating task",
+                            "Mark parallel=true ONLY if truly independent (no file overlap)",
+                            "Use tags: strict:* + cognitive:* for every task"
+                        ],
+                        "tag_formula": "1 TYPE + 1 DOMAIN + 0-2 WORKFLOW + 1 STRICT + 1 COGNITIVE",
+                        "tag_categories": {
+                            "type": "feature, bugfix, refactor, research, docs, test, chore, spike, hotfix",
+                            "domain": "backend, frontend, database, api, auth, ui, config, infra, ci-cd, migration",
+                            "workflow": "decomposed, validation-fix, blocked, stuck, needs-research, parallel-safe, atomic",
+                            "strict": "strict:relaxed, strict:standard, strict:strict, strict:paranoid",
+                            "cognitive": "cognitive:minimal, cognitive:standard, cognitive:deep, cognitive:exhaustive"
+                        },
+                        "case_categories": category_keys,
+                        "case_categories_full": categories,
+                        "safety_escalation": "auth/, payments/, migrations/ auto-escalate to strict:strict"
+                    },
+                    "cookbook_usage": {
+                        "search": 'cookbook(include="cases", query="parallel")',
+                        "multi_category": 'cookbook(include="cases", case_category="store,search")',
+                        "priority": 'cookbook(include="cases", priority="critical")',
+                        "cognitive": 'cookbook(include="cases", cognitive="deep,exhaustive")',
+                        "strict": 'cookbook(include="cases", strict="strict,paranoid")',
+                        "combined": 'cookbook(include="cases", case_category="gates-rules", priority="critical")',
+                        "paginate": 'cookbook(include="cases", limit=5, offset=0)',
+                        "full": 'cookbook(include="all", level=2)',
+                        "list": 'cookbook(include="categories")'
+                    },
+                    "next_steps": [
+                        "cookbook(level=0, include='docs') - quick reference table",
+                        "cookbook(include='cases', case_category='task-decision') - by category",
+                        "cookbook(include='cases', priority='critical') - critical rules only",
+                        "cookbook(include='cases', query='parallel') - search by keyword",
+                        "cookbook(include='cases', cognitive='deep') - cognitive:deep patterns",
+                        "cookbook(level=2, include='all') - everything for deep dive"
+                    ],
+                    "message": f"Init complete. {len(categories)} case categories available."
+                }
+
+            # CATEGORIES: List of case categories with keys, names, and descriptions
+            if include == "categories":
+                raw_cases = load_cases_raw()
+                if not raw_cases:
+                    return {"success": False, "error": "Cases not found"}
+
+                categories = parse_categories(raw_cases)
+
+                return {
+                    "success": True,
+                    "include": "categories",
+                    "categories": categories,
+                    "keys": [c["key"] for c in categories],
+                    "total": len(categories),
+                    "usage": 'cookbook(include="cases", case_category="{key}")',
+                    "message": f"Found {len(categories)} case categories"
+                }
+
+            # DOCS, CASES, ALL
+            docs_content = ""
+            cases_content = ""
+            total_matches = 0
+            has_more = False
+
+            if include in ("docs", "all"):
+                raw_docs = load_docs_raw()
+                if raw_docs:
+                    pattern = r'<!-- LEVEL:(\d) -->(.*?)<!-- /LEVEL:\d -->'
+                    matches = re.findall(pattern, raw_docs, re.DOTALL)
+
+                    levels_content = {}
+                    for lvl, text in matches:
+                        levels_content[int(lvl)] = text.strip()
+
+                    docs_parts = []
+                    for lvl in range(level + 1):
+                        if lvl in levels_content:
+                            docs_parts.append(f"<!-- LEVEL:{lvl} -->\n{levels_content[lvl]}\n<!-- /LEVEL:{lvl} -->")
+
+                    docs_content = "\n\n".join(docs_parts) if docs_parts else ""
+                    
+                    # Apply query search to docs
+                    if query and docs_content:
+                        matching_sections, match_count = search_in_content(docs_content, query)
+                        if isinstance(matching_sections, list):
+                            paginated, total, has_more_docs = paginate_sections(matching_sections, limit, offset)
+                            docs_content = "\n\n---\n\n".join(paginated)
+                            total_matches += total
+                            has_more = has_more_docs or has_more
+
+            if include in ("cases", "all"):
+                raw_cases = load_cases_raw()
+                if raw_cases:
+                    if case_category:
+                        cases_content = filter_case_category_csv(raw_cases, case_category)
+                        if not cases_content:
+                            categories = parse_categories(raw_cases)
+                            available_keys = [c["key"] for c in categories]
+                            cases_content = f"No cases found for: '{case_category}'. Available keys: {available_keys}"
+                    else:
+                        cases_content = raw_cases
+                    
+                    if not cases_content.startswith("No cases found"):
+                        if priority:
+                            cases_content, p_count = filter_by_priority(cases_content, priority)
+                            if not cases_content:
+                                cases_content = f"No content found with priority: {priority}"
+                        
+                        if cognitive and not cases_content.startswith("No"):
+                            cases_content, c_count = filter_by_tag_pattern(cases_content, "cognitive", cognitive)
+                            if not cases_content:
+                                cases_content = f"No content found with cognitive: {cognitive}"
+                        
+                        if strict and not cases_content.startswith("No"):
+                            cases_content, s_count = filter_by_tag_pattern(cases_content, "strict", strict)
+                            if not cases_content:
+                                cases_content = f"No content found with strict: {strict}"
+                        
+                        if query and cases_content and not cases_content.startswith("No"):
+                            matching_sections, match_count = search_in_content(cases_content, query)
+                            if isinstance(matching_sections, list):
+                                paginated, total, has_more_cases = paginate_sections(matching_sections, limit, offset)
+                                cases_content = "\n\n---\n\n".join(paginated)
+                                total_matches += total
+                                has_more = has_more_cases or has_more
+
+            if include == "docs":
+                result["content"] = docs_content
+                if query:
+                    result["message"] = f"Docs level {level} with query '{query}' ({total_matches} matches, showing {limit})"
+                else:
+                    result["message"] = f"Docs level {level} ({len(docs_content)} chars)"
+            elif include == "cases":
+                result["content"] = cases_content
+                filters = []
+                if case_category:
+                    filters.append(f"category={case_category}")
+                if priority:
+                    filters.append(f"priority={priority}")
+                if cognitive:
+                    filters.append(f"cognitive={cognitive}")
+                if strict:
+                    filters.append(f"strict={strict}")
+                if query:
+                    filters.append(f"query={query}")
+                
+                filter_str = f" [{', '.join(filters)}]" if filters else ""
+                result["message"] = f"Cases{filter_str} ({len(cases_content)} chars)"
+                if query and total_matches:
+                    result["message"] += f" ({total_matches} matches)"
+            else:
+                result["content"] = f"# Documentation\n\n{docs_content}\n\n# Use Cases\n\n{cases_content}"
+                result["message"] = f"Docs level {level} + Cases ({len(result['content'])} chars)"
+                if query:
+                    result["message"] += f" with query '{query}' ({total_matches} matches)"
+
+            result["content_length"] = len(result.get("content", ""))
+            result["total_matches"] = total_matches if query else None
+            result["has_more"] = has_more if query else None
+            return result
+
+        except Exception as e:
+            return {
+                "success": False,
+                "error": "Failed to get cookbook",
                 "message": str(e)
             }
 

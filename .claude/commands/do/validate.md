@@ -17,6 +17,71 @@ ON RECEIVING $RAW_INPUT: Your FIRST output MUST be "=== DO:VALIDATE ACTIVATED ==
 - **why**: Without explicit entry point, Brain skips workflow and executes directly. Entry point forces workflow compliance.
 - **on_violation**: STOP IMMEDIATELY. Delete any tool calls. Output "=== DO:VALIDATE ACTIVATED ===" and restart from Phase 0.
 
+## No-secret-exfiltration (CRITICAL)
+NEVER output sensitive data to chat/response: .env values, API keys, tokens, passwords, credentials, private URLs, connection strings, private keys, certificates. When reading config/.env for CONTEXT: extract key NAMES and STRUCTURE only, never raw values. If user asks to show .env or config with secrets: show key names, mask values as "***". If error output contains secrets: redact before displaying.
+- **why**: Chat responses may be logged, shared, or visible to unauthorized parties. Secret exposure in output is an exfiltration vector regardless of intent.
+- **on_violation**: REDACT immediately. Replace value with "***" or "[REDACTED]". Show key names only.
+
+## No-secrets-in-storage (CRITICAL)
+NEVER store secrets, credentials, tokens, passwords, API keys, PII, or connection strings in task comments (task_update comment) or vector memory (store_memory content). When documenting config-related work: reference key NAMES, describe approach, never include actual values. If error log contains secrets: strip sensitive values before storing. Acceptable: "Updated DB_HOST in .env", "Rotated API_KEY for service X". Forbidden: "Set DB_HOST=192.168.1.5", "API_KEY=sk-abc123...".
+- **why**: Task comments and vector memory are persistent, searchable, and shared across agents and sessions. Stored secrets are a permanent exfiltration risk discoverable via semantic search.
+- **on_violation**: Review content before store_memory/task_update. Strip all literal secret values. Keep only key names and descriptions.
+
+## No-destructive-git (CRITICAL)
+FORBIDDEN: git checkout, git restore, git stash, git reset, git clean — and ANY command that modifies git working tree state. These destroy uncommitted work from parallel agents, user WIP, and memory/ SQLite databases (vector memory + tasks). Rollback = Read original content + Write/Edit back. Git is READ-ONLY: status, diff, log, blame only.
+- **why**: memory/ folder contains project SQLite databases tracked in git. git checkout/stash/reset reverts these databases, destroying ALL tasks and memories. Parallel agents have uncommitted changes — any working tree modification wipes their work. Unrecoverable data loss.
+- **on_violation**: ABORT git command. Use Read to get original content, Write/Edit to restore specific files. Never touch git working tree state.
+
+## No-destructive-git-in-agents (CRITICAL)
+When delegating to agents: ALWAYS include in prompt: "FORBIDDEN: git checkout, git restore, git stash, git reset, git clean. Rollback = Read + Write. Git is READ-ONLY."
+- **why**: Sub-agents do not inherit parent rules. Without explicit prohibition, agents will use git for rollback and destroy parallel work.
+- **on_violation**: Add git prohibition to agent prompt before delegation.
+
+## Memory-folder-sacred (CRITICAL)
+memory/ folder contains SQLite databases (vector memory + tasks). SACRED — protect at ALL times. NEVER git checkout/restore/reset/clean memory/ — these DESTROY all project knowledge irreversibly. In PARALLEL CONTEXT: use "git add {specific_files}" (task-scope only) — memory/ excluded implicitly because it is not in task files. In NON-PARALLEL context: "git add -A" is safe and DESIRED — includes memory/ for full state checkpoint preserving knowledge base alongside code.
+- **why**: memory/ is the project persistent brain. Destructive git commands on memory/ = total knowledge loss. In parallel mode, concurrent SQLite writes + git add -A = binary merge conflicts and staged half-done sibling work. In sequential mode, committing memory/ preserves full project state for safe revert.
+- **on_violation**: NEVER destructive git on memory/. Parallel: git add specific files only (memory/ not in scope). Non-parallel: git add -A (full checkpoint with memory/).
+
+## Task-tags-predefined-only (CRITICAL)
+Task tags MUST use ONLY predefined values. FORBIDDEN: inventing new tags, synonyms, variations. Allowed: decomposed, validation-fix, blocked, stuck, needs-research, light-validation, parallel-safe, atomic, manual-only, regression, feature, bugfix, refactor, research, docs, test, chore, spike, hotfix, backend, frontend, database, api, auth, ui, config, infra, ci-cd, migration, strict:relaxed, strict:standard, strict:strict, strict:paranoid, cognitive:minimal, cognitive:standard, cognitive:deep, cognitive:exhaustive, batch:trivial.
+- **why**: Ad-hoc tags cause explosion ("user-auth", "authentication", "auth" = same thing, search finds none). Predefined list = consistent search.
+- **on_violation**: Replace with closest predefined match. No match = skip tag, put context in content.
+
+## Memory-tags-predefined-only (CRITICAL)
+Memory tags MUST use ONLY predefined values. Allowed: pattern, solution, `failure`, decision, insight, workaround, deprecated, project-wide, module-specific, temporary, reusable.
+- **why**: Unknown tags = unsearchable memories. Predefined = discoverable.
+- **on_violation**: Replace with closest predefined match.
+
+## Memory-categories-predefined-only (CRITICAL)
+Memory category MUST be one of: code-solution, bug-fix, architecture, learning, debugging, performance, security, project-context. FORBIDDEN: "other", "general", "misc", or unlisted.
+- **why**: "other" is garbage nobody searches. Every memory needs meaningful category.
+- **on_violation**: Choose most relevant from predefined list.
+
+## Mandatory-level-tags (CRITICAL)
+EVERY task MUST have exactly ONE strict:* tag AND ONE cognitive:* tag. Allowed strict: strict:relaxed, strict:standard, strict:strict, strict:paranoid. Allowed cognitive: cognitive:minimal, cognitive:standard, cognitive:deep, cognitive:exhaustive. Missing level tags = assign based on task scope analysis.
+- **why**: Level tags enable per-task compilation and cognitive load calibration. Without them, system defaults apply blindly regardless of task complexity.
+- **on_violation**: Analyze task scope and assign: strict:{level} + cognitive:{level}. Simple rename = strict:relaxed + cognitive:minimal. Production auth = strict:strict + cognitive:deep.
+
+## Safety-escalation-non-overridable (CRITICAL)
+After loading task, check file paths in task.content/comment. If files match safety patterns → effective level MUST be >= pattern minimum, regardless of task tags or .env default. Agent tags are suggestions UPWARD only — can raise above safety floor, never lower below it.
+- **why**: Safety patterns guarantee minimum protection for critical code areas. Agent cannot "cheat" by under-tagging a task touching auth/ or payments/.
+- **on_violation**: Raise effective level to safety floor. Log escalation in task comment.
+
+## Failure-policy-tool-error (CRITICAL)
+TOOL ERROR / MCP FAILURE: 1) Retry ONCE with same parameters. 2) Still fails → STOP current step. 3) Store `failure` to memory (category: "debugging", tags: ["failure"]). 4) Update task comment: "BLOCKED: {tool} failed after retry. Error: {msg}", append_comment: true. 5) -y mode: set status "pending" (return to queue for retry), abort current workflow. Interactive: ask user "Tool failed. Retry/Skip/Abort?". NEVER set "stopped" on `failure` — "stopped" = permanently cancelled.
+- **why**: Consistent tool `failure` handling across all commands. One retry catches transient issues. Failed task returns to `pending` queue — it is NOT cancelled, just needs another attempt or manual intervention.
+- **on_violation**: Follow 5-step sequence. Max 1 retry for same tool call. Always store `failure` to memory. Status → `pending`, NEVER `stopped`.
+
+## Failure-policy-missing-docs (HIGH)
+MISSING DOCS: 1) Apply aggressive-docs-search (3+ keyword variations). 2) All variations exhausted → conclude "no docs". 3) Proceed using: task.content (primary spec) + vector memory context + parent task context. 4) Log in task comment: "No documentation found after {N} search attempts. Proceeding with task.content.", append_comment: true. NOT a blocker — absence of docs is information, not `failure`.
+- **why**: Missing docs must not block execution. task.content is the minimum viable specification. Blocking on missing docs causes pipeline stalls for tasks that never had docs.
+- **on_violation**: Never block on missing docs. Search aggressively, then proceed with available context.
+
+## Failure-policy-ambiguous-spec (HIGH)
+AMBIGUOUS SPEC: 1) Identify SPECIFIC ambiguity (not "task is unclear" but "field X: type A or B?"). 2) -y mode: choose conservative/safe interpretation, log decision in task comment: "DECISION: interpreted {X} as {Y} because {reason}", append_comment: true. 3) Interactive: ask ONE targeted question about the SPECIFIC gap. 4) After 1 clarification → proceed. NEVER ask open-ended "what did you mean?" or multiple follow-ups.
+- **why**: Ambiguity paralysis wastes more time than conservative interpretation. One precise question is enough — if user wanted detailed spec, they would have written docs.
+- **on_violation**: Identify specific gap. One question or auto-decide. Proceed.
+
 ## Validation-only-no-execution (CRITICAL)
 VALIDATION command validates EXISTING work. NEVER implement, fix, or create code directly. Only validate and CREATE TASKS for issues found.
 - **why**: Validation is read-only audit. Execution belongs to do:async.
@@ -72,6 +137,16 @@ Output validation status: PASSED (no critical issues, no missing requirements) o
 - **why**: Clear status enables informed decision-making on next steps.
 - **on_violation**: Include explicit status in validation report.
 
+## Do-machine-readable-progress (HIGH)
+ALL progress output MUST follow structured format. DURING EXECUTION: emit "STATUS: [phase_name] description" at each major workflow phase. AT COMPLETION: emit "RESULT: SUCCESS|PARTIAL|FAILED|PASSED|NEEDS_WORK — key=value, key=value" followed by "NEXT: recommended_command". No free-form progress — only STATUS/RESULT/NEXT lines. Examples: "STATUS: [context] Analyzing task scope" | "STATUS: [execution] Step 3/5 complete" | "RESULT: SUCCESS — steps=5/5, files=3" | "NEXT: /do:validate {description}".
+- **why**: Structured format enables UI rendering, orchestrator parsing, and consistent user experience. Matches Task command output contract for uniform tooling.
+- **on_violation**: Reformat to STATUS/RESULT/NEXT structure. Replace free-form text with structured lines.
+
+## Do-failure-awareness (CRITICAL)
+BEFORE starting work: search memory category "debugging" for KNOWN FAILURES related to $TASK_DESCRIPTION. Found → extract failed approaches and BLOCK them. Pass blocked approaches to agents (async) or exclude from plan (sync). Do NOT attempt solutions that already failed.
+- **why**: Repeating failed solutions wastes time and context. Memory contains "this does NOT work" knowledge from previous sessions.
+- **on_violation**: Search debugging memories FIRST. Block known-failed approaches in plan/delegation.
+
 ## Task-size-5-8h (HIGH)
 Each created task MUST have estimate between 5-8 hours. Never create tasks < 5h (consolidate) or > 8h (split).
 - **why**: Optimal task size for focused work sessions. Too small = context switching overhead. Too large = hard to track progress.
@@ -83,10 +158,67 @@ Each task MUST include: all file:line references, memory IDs, documentation path
 - **on_violation**: Add missing context references before creating task.
 
 
+# Task tag selection
+GOAL(Select tags per task. Combine dimensions for precision.)
+WORKFLOW (pipeline stage): decomposed, validation-fix, blocked, stuck, needs-research, light-validation, parallel-safe, atomic, manual-only, regression
+TYPE (work kind): feature, bugfix, refactor, research, docs, test, chore, spike, hotfix
+DOMAIN (area): backend, frontend, database, api, auth, ui, config, infra, ci-cd, migration
+STRICT LEVEL: strict:relaxed, strict:standard, strict:strict, strict:paranoid
+COGNITIVE LEVEL: cognitive:minimal, cognitive:standard, cognitive:deep, cognitive:exhaustive
+BATCH: batch:trivial
+Formula: 1 TYPE + 1 DOMAIN + 0-2 WORKFLOW + 1 STRICT + 1 COGNITIVE. Example: ["feature", "api", "strict:standard", "cognitive:standard"] or ["bugfix", "auth", "validation-fix", "strict:strict", "cognitive:deep"].
+
+# Memory tag selection
+GOAL(Select 1-3 tags per memory. Combine dimensions.)
+CONTENT (kind): pattern, solution, `failure`, decision, insight, workaround, deprecated
+SCOPE (breadth): project-wide, module-specific, temporary, reusable
+Formula: 1 CONTENT + 0-1 SCOPE. Example: ["solution", "reusable"] or ["failure", "module-specific"]. Max 3 tags.
+
+# Safety escalation patterns
+GOAL(Automatic level escalation based on file patterns and context)
+File patterns → strict minimum: auth/, guards/, policies/, permissions/ → strict. payments/, billing/, stripe/, subscription/ → strict. .env, credentials, secrets, config/auth → paranoid. migrations/, schema → strict. composer.json, package.json, *.lock → standard. CI/, .github/, Dockerfile, docker-compose → strict. routes/, middleware/ → standard.
+Context patterns → level minimum: priority=critical → strict+deep. tag hotfix or production → strict+standard. touches >10 files → standard+standard. tag breaking-change → strict+deep. Keywords security/encryption/auth/permission → strict. Keywords migration/schema/database/drop → strict.
+
+# Cognitive level
+GOAL(Cognitive level: standard — calibrate analysis depth accordingly)
+Memory probes per phase: 2-3 targeted
+Failure history: recent only
+Research (context7/web): on error/ambiguity
+Agent scaling: auto (2-3)
+Comment parsing: basic parse
+
+# Aggressive docs search
+GOAL(Find documentation even if named differently than task/code)
+- `1`: Generate keyword variations from task title/content:
+- `2`:   1. Original: "FocusModeTest" → search "FocusModeTest"
+- `3`:   2. Split CamelCase: "FocusModeTest" → search "FocusMode", "Focus Mode"
+- `4`:   3. Remove suffix: "FocusModeTest" → search "Focus" (remove Mode, Test)
+- `5`:   4. Domain words: extract meaningful nouns → search each
+- `6`:   5. Parent context: if task has parent → include parent title keywords
+- `7`: Common suffixes to STRIP: Test, Tests, Controller, Service, Repository, Command, Handler, Provider, Factory, Manager, Helper, Validator, Processor
+- `8`: Search ORDER: most specific → most general. STOP when found.
+- `9`: Minimum 3 search attempts before concluding "no documentation".
+- `10`: WRONG: brain docs "UserAuthenticationServiceTest" → not found → done
+- `11`: RIGHT: brain docs "UserAuthenticationServiceTest" → not found → brain docs "UserAuthentication" → not found → brain docs "Authentication" → FOUND!
+
+# Do failure awareness
+GOAL(Mine failure history before execution to avoid repeating mistakes)
+- `1`: mcp__vector-memory__search_memories('{query: "$TASK_DESCRIPTION failure", limit: 5, category: "debugging"}')
+- `2`: STORE-AS($KNOWN_FAILURES = {failed approaches, errors, blocked patterns})
+- `3`: IF($KNOWN_FAILURES not empty) →
+  STORE-AS($BLOCKED_APPROACHES = {extracted approaches that MUST NOT be attempted})
+  OUTPUT(Known failures found: {$KNOWN_FAILURES.count}. Blocked approaches: {$BLOCKED_APPROACHES})
+→ END-IF
+- `4`: IF($KNOWN_FAILURES empty) →
+  STORE-AS($BLOCKED_APPROACHES = [])
+  No known failures — proceed freely.
+→ END-IF
+
 # Input
 STORE-AS($RAW_INPUT = $ARGUMENTS)
 STORE-AS($HAS_AUTO_APPROVE = {true if $RAW_INPUT contains "-y" or "--yes"})
-STORE-AS($VALIDATION_TARGET = {target to validate extracted from $RAW_INPUT})
+STORE-AS($CLEAN_ARGS = {$RAW_INPUT with -y/--yes flags removed})
+STORE-AS($VALIDATION_TARGET = {target to validate extracted from $CLEAN_ARGS})
 
 # Phase0 context setup
 GOAL(Process $RAW_INPUT (already captured), extract flags, store task context)
@@ -160,12 +292,12 @@ GOAL(Aggregate all validation results and categorize issues)
 - `1`: OUTPUT( === PHASE 5: RESULTS AGGREGATION ===)
 - `2`: Merge results from all validation agents
 - `3`: STORE-AS($ALL_ISSUES = {merged issues from all agents})
-- `4`: mcp__sequential-thinking__sequentialthinking('{'."\\n"
-    .'                thought: "Analyzing validation results. Categorizing by: severity (critical/major/minor), type (functional/cosmetic), impact, fix effort, dependencies between issues.",'."\\n"
-    .'                thoughtNumber: 1,'."\\n"
-    .'                totalThoughts: 3,'."\\n"
-    .'                nextThoughtNeeded: true'."\\n"
-    .'            }')
+- `4`: mcp__sequential-thinking__sequentialthinking({
+                thought: "Analyzing validation results. Categorizing by: severity (critical/major/minor), type (functional/cosmetic), impact, fix effort, dependencies between issues.",
+                thoughtNumber: 1,
+                totalThoughts: 3,
+                nextThoughtNeeded: true
+            })
 - `5`: Categorize issues:
 - `6`: STORE-AS($CRITICAL_ISSUES = {issues with severity: critical})
 - `7`: STORE-AS($MAJOR_ISSUES = {issues with severity: major})
@@ -174,25 +306,25 @@ GOAL(Aggregate all validation results and categorize issues)
 - `10`: OUTPUT(Validation results: - Critical issues: {$CRITICAL_ISSUES.COUNT} - Major issues: {$MAJOR_ISSUES.COUNT} - Minor issues: {$MINOR_ISSUES.COUNT} - Missing requirements: {$MISSING_REQUIREMENTS.COUNT})
 
 # Phase6 task creation
-GOAL(Create consolidated tasks (5-8h each) for issues with comprehensive context)
+GOAL(Create root-level vector tasks (5-8h each) for issues with comprehensive context)
 - `1`: OUTPUT( === PHASE 6: TASK CREATION (CONSOLIDATED) ===)
-- `2`: Check existing tasks in memory to avoid duplicates
-- `3`: mcp__vector-memory__search_memories('{query: "fix issues $TASK_DESCRIPTION", limit: 20, category: "code-solution"}')
-- `4`: STORE-AS($EXISTING_FIX_MEMORIES = Existing fix task memories)
-- `5`: mcp__sequential-thinking__sequentialthinking('{'."\\n"
-    .'                thought: "Planning task consolidation strategy. Analyzing: total effort, issue grouping, dependencies, optimal batch sizes (5-8h), priority ordering.",'."\\n"
-    .'                thoughtNumber: 1,'."\\n"
-    .'                totalThoughts: 2,'."\\n"
-    .'                nextThoughtNeeded: true'."\\n"
-    .'            }')
+- `2`: Check existing `pending` tasks to avoid duplicates
+- `3`: mcp__vector-task__task_list('{query: "fix $TASK_DESCRIPTION", status: "pending", limit: 20}')
+- `4`: STORE-AS($EXISTING_FIX_TASKS = Existing `pending` fix tasks)
+- `5`: mcp__sequential-thinking__sequentialthinking({
+                thought: "Planning task consolidation strategy. Analyzing: total effort, issue grouping, dependencies, optimal batch sizes (5-8h), priority ordering.",
+                thoughtNumber: 1,
+                totalThoughts: 2,
+                nextThoughtNeeded: true
+            })
 - `6`: CONSOLIDATION STRATEGY: Group issues into 5-8 hour task batches
 - `7`: Calculate total estimate for ALL issues: - Critical issues: ~2h per issue (investigation + fix + test) - Major issues: ~1.5h per issue (fix + verify) - Minor issues: ~0.5h per issue (fix + verify) - Missing requirements: ~4h per requirement (implement + test) STORE-AS($TOTAL_ESTIMATE = {sum of all issue estimates in hours})
 - `8`: IF({$TOTAL_ESTIMATE} <= 8) →
   ALL issues fit into ONE consolidated task (5-8h range)
-  IF(({$CRITICAL_ISSUES.COUNT} + {$MAJOR_ISSUES.COUNT} + {$MINOR_ISSUES.COUNT} + {$MISSING_REQUIREMENTS.COUNT}) > 0 AND NOT exists similar in $EXISTING_FIX_MEMORIES) →
-  mcp__vector-memory__store_memory('{content: "Validation fix task: $TASK_DESCRIPTION\\\\n\\\\nTotal estimate: {$TOTAL_ESTIMATE}h\\\\n\\\\n## Critical Issues ({$CRITICAL_ISSUES.COUNT})\\\\n{FOR each issue: - [{issue.severity}] {issue.description}\\\\n  File: {issue.file}:{issue.line}\\\\n  Type: {issue.type}\\\\n  Suggestion: {issue.suggestion}\\\\n}\\\\n\\\\n## Major Issues ({$MAJOR_ISSUES.COUNT})\\\\n{FOR each issue: - [{issue.severity}] {issue.description}\\\\n  File: {issue.file}:{issue.line}\\\\n}\\\\n\\\\n## Minor Issues ({$MINOR_ISSUES.COUNT})\\\\n{FOR each issue: - [{issue.severity}] {issue.description}\\\\n}\\\\n\\\\n## Missing Requirements ({$MISSING_REQUIREMENTS.COUNT})\\\\n{FOR each req: - {req.description}\\\\n  Acceptance criteria: {req.acceptance_criteria}\\\\n}\\\\n\\\\n## Context References\\\\n- Memory IDs: {$MEMORY_CONTEXT.MEMORY_IDS}\\\\n- Documentation: {$DOCS_INDEX.PATHS}\\\\n- Validation agents used: {$SELECTED_AGENTS}", category: "code-solution", tags: ["validation-fix", "consolidated", "do:validate"]}')
-  STORE-AS($CREATED_TASKS[] = {memory_id})
-  OUTPUT(Created consolidated fix task in memory ({$TOTAL_ESTIMATE}h, {issues_count} issues))
+  IF(issues exist AND NOT duplicate in $EXISTING_FIX_TASKS) →
+  mcp__vector-task__task_create('{title: "Fix: $TASK_DESCRIPTION (validation)", content: "## Validation Fix Task\\\\n\\\\nTotal estimate: {$TOTAL_ESTIMATE}h\\\\n\\\\n## Critical Issues ({$CRITICAL_ISSUES.COUNT})\\\\n{FOR each issue: - [{issue.severity}] {issue.description}\\\\n  File: {issue.file}:{issue.line}\\\\n  Type: {issue.type}\\\\n  Suggestion: {issue.suggestion}}\\\\n\\\\n## Major Issues ({$MAJOR_ISSUES.COUNT})\\\\n{FOR each issue: - [{issue.severity}] {issue.description}\\\\n  File: {issue.file}:{issue.line}}\\\\n\\\\n## Minor Issues ({$MINOR_ISSUES.COUNT})\\\\n{FOR each issue: - [{issue.severity}] {issue.description}}\\\\n\\\\n## Missing Requirements ({$MISSING_REQUIREMENTS.COUNT})\\\\n{FOR each req: - {req.description}\\\\n  Acceptance criteria: {req.acceptance_criteria}}\\\\n\\\\n## Context References\\\\n- Memory IDs: {$MEMORY_CONTEXT.MEMORY_IDS}\\\\n- Documentation: {$DOCS_INDEX.PATHS}\\\\n- Validation agents used: {$SELECTED_AGENTS}", priority: "high", estimate: {$TOTAL_ESTIMATE}, tags: ["validation-fix", "manual-only"]}')
+  STORE-AS($CREATED_TASKS[] = {created task_id})
+  OUTPUT(Created consolidated fix task #{task_id} ({$TOTAL_ESTIMATE}h, {issues_count} issues))
 → END-IF
 → END-IF
 - `9`: IF({$TOTAL_ESTIMATE} > 8) →
@@ -203,13 +335,10 @@ GOAL(Create consolidated tasks (5-8h each) for issues with comprehensive context
   FOREACH(batch_index in range(1, $NUM_BATCHES)) →
   STORE-AS($BATCH_ISSUES = {slice of issues for this batch, ~6h worth, priority-ordered})
   STORE-AS($BATCH_ESTIMATE = {sum of batch issue estimates})
-  STORE-AS($BATCH_CRITICAL = {count of critical issues in batch})
-  STORE-AS($BATCH_MAJOR = {count of major issues in batch})
-  STORE-AS($BATCH_MISSING = {count of missing requirements in batch})
-  IF(NOT exists similar in $EXISTING_FIX_MEMORIES) →
-  mcp__vector-memory__store_memory('{content: "Validation fix batch {batch_index}/{$NUM_BATCHES}: $TASK_DESCRIPTION\\\\n\\\\nBatch estimate: {$BATCH_ESTIMATE}h\\\\nBatch composition: {$BATCH_CRITICAL} critical, {$BATCH_MAJOR} major, {$BATCH_MISSING} missing reqs\\\\n\\\\n## Issues in this batch\\\\n{FOR each issue in $BATCH_ISSUES:\\\\n### [{issue.severity}] {issue.title}\\\\n- File: {issue.file}:{issue.line}\\\\n- Description: {issue.description}\\\\n- Suggestion: {issue.suggestion}\\\\n}\\\\n\\\\n## Context References\\\\n- Memory IDs: {$MEMORY_CONTEXT.MEMORY_IDS}\\\\n- Documentation: {$DOCS_INDEX.PATHS}\\\\n- Total batches: {$NUM_BATCHES} ({$TOTAL_ESTIMATE}h total)\\\\n- Validation agents: {$SELECTED_AGENTS}", category: "code-solution", tags: ["validation-fix", "batch-{batch_index}", "do:validate"]}')
-  STORE-AS($CREATED_TASKS[] = {memory_id})
-  OUTPUT(Created batch {batch_index}/{$NUM_BATCHES}: {$BATCH_ESTIMATE}h ({$BATCH_ISSUES.COUNT} issues))
+  IF(NOT duplicate in $EXISTING_FIX_TASKS) →
+  mcp__vector-task__task_create('{title: "Fix batch {batch_index}/$NUM_BATCHES: $TASK_DESCRIPTION", content: "## Validation Fix Batch {batch_index}\\\\n\\\\nBatch estimate: {$BATCH_ESTIMATE}h\\\\n\\\\n## Issues in this batch\\\\n{FOR each issue: - [{issue.severity}] {issue.description}\\\\n  File: {issue.file}:{issue.line}\\\\n  Suggestion: {issue.suggestion}}\\\\n\\\\n## Context References\\\\n- Memory IDs: {$MEMORY_CONTEXT.MEMORY_IDS}\\\\n- Documentation: {$DOCS_INDEX.PATHS}\\\\n- Total batches: $NUM_BATCHES", priority: "high", estimate: {$BATCH_ESTIMATE}, order: {batch_index}, tags: ["validation-fix", "manual-only"]}')
+  STORE-AS($CREATED_TASKS[] = {created task_id})
+  OUTPUT(Created batch {batch_index}/$NUM_BATCHES: {$BATCH_ESTIMATE}h ({$BATCH_ISSUES.COUNT} issues))
 → END-IF
 → END-FOREACH
 → END-IF
@@ -224,10 +353,10 @@ GOAL(Complete validation, store summary to memory)
 → ELSE →
   NEEDS_WORK
 → END-IF)
-- `4`: mcp__vector-memory__store_memory('{content: "Validation of $TASK_DESCRIPTION\\\\n\\\\nStatus: {$VALIDATION_STATUS}\\\\nCritical: {$CRITICAL_ISSUES.COUNT}\\\\nMajor: {$MAJOR_ISSUES.COUNT}\\\\nMinor: {$MINOR_ISSUES.COUNT}\\\\nTasks created: {$CREATED_TASKS.COUNT}\\\\n\\\\nFindings:\\\\n{summary of key findings}", category: "code-solution", tags: ["validation", "audit", "do:validate"]}')
-- `5`: OUTPUT( === VALIDATION REPORT === Task: {$TASK_DESCRIPTION} Status: {$VALIDATION_STATUS}  | Metric | Count | |--------|-------| | Critical issues | {$CRITICAL_ISSUES.COUNT} | | Major issues | {$MAJOR_ISSUES.COUNT} | | Minor issues | {$MINOR_ISSUES.COUNT} | | Missing requirements | {$MISSING_REQUIREMENTS.COUNT} | | Fix tasks created | {$CREATED_TASKS.COUNT} |  {IF $CREATED_TASKS.COUNT > 0: "Follow-up fix memories: {$CREATED_TASKS}"}  Validation stored to vector memory.)
+- `4`: mcp__vector-memory__store_memory('{content: "Validation of $TASK_DESCRIPTION\\\\n\\\\nStatus: {$VALIDATION_STATUS}\\\\nCritical: {$CRITICAL_ISSUES.COUNT}\\\\nMajor: {$MAJOR_ISSUES.COUNT}\\\\nMinor: {$MINOR_ISSUES.COUNT}\\\\nTasks created: {$CREATED_TASKS.COUNT}\\\\n\\\\nFindings:\\\\n{summary of key findings}", category: "code-solution", tags: ["decision", "reusable"]}')
+- `5`: OUTPUT( === VALIDATION REPORT === Task: {$TASK_DESCRIPTION} Status: {$VALIDATION_STATUS}  | Metric | Count | |--------|-------| | Critical issues | {$CRITICAL_ISSUES.COUNT} | | Major issues | {$MAJOR_ISSUES.COUNT} | | Minor issues | {$MINOR_ISSUES.COUNT} | | Missing requirements | {$MISSING_REQUIREMENTS.COUNT} | | Fix tasks created | {$CREATED_TASKS.COUNT} |  {IF $CREATED_TASKS.COUNT > 0: "Created task IDs: {$CREATED_TASKS}"}  RESULT: {$VALIDATION_STATUS} — critical={$CRITICAL_ISSUES.COUNT}, major={$MAJOR_ISSUES.COUNT}, minor={$MINOR_ISSUES.COUNT}, tasks_created={$CREATED_TASKS.COUNT} NEXT: {IF $CREATED_TASKS.COUNT > 0: "/task:async #{first_task_id} [-y]" ELSE: "No issues found."})
 
-# Error handling
+# Error recovery
 Graceful error handling with recovery options
 - `1`: IF(user rejects plan) →
   Accept modifications
@@ -244,17 +373,16 @@ Graceful error handling with recovery options
   Abort command
 → END-IF
 - `4`: IF(agent execution fails) →
-  Log: "Step/Agent {N} failed: {error}"
+  Log: "Validation agent {N} failed: {error}"
   Offer options:
-    1. Retry current step
+    1. Retry current agent
     2. Skip and continue
-    3. Abort remaining steps
+    3. Abort remaining validation
   WAIT for user decision
 → END-IF
 - `5`: IF(documentation scan fails) →
   Log: "brain docs command failed or no documentation found"
   Proceed without documentation context
-  Note: "Documentation context unavailable"
 → END-IF
 - `6`: IF(memory storage fails) →
   Log: "Failed to store to memory: {error}"
@@ -293,6 +421,6 @@ When to use /do:validate vs /task:validate
 - `USE /task:validate`: Vector task validation (15, #15, task 15). Best for: systematic task workflow, hierarchical task management, fix task creation as children.
 
 # Response format
-=== headers | Parallel: agent batch indicators | Tables: validation results | No filler | Created memories listed
+=== headers | Parallel: agent batch indicators | Tables: validation results | No filler | Created task IDs listed
 
 </command>

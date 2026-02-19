@@ -17,6 +17,71 @@ ON RECEIVING $RAW_INPUT: Your FIRST output MUST be "=== DO:BRAINSTORM ACTIVATED 
 - **why**: Without explicit entry point, Brain skips workflow and executes directly. Entry point forces workflow compliance.
 - **on_violation**: STOP IMMEDIATELY. Delete any tool calls. Output "=== DO:BRAINSTORM ACTIVATED ===" and restart from Phase 0.
 
+## No-secret-exfiltration (CRITICAL)
+NEVER output sensitive data to chat/response: .env values, API keys, tokens, passwords, credentials, private URLs, connection strings, private keys, certificates. When reading config/.env for CONTEXT: extract key NAMES and STRUCTURE only, never raw values. If user asks to show .env or config with secrets: show key names, mask values as "***". If error output contains secrets: redact before displaying.
+- **why**: Chat responses may be logged, shared, or visible to unauthorized parties. Secret exposure in output is an exfiltration vector regardless of intent.
+- **on_violation**: REDACT immediately. Replace value with "***" or "[REDACTED]". Show key names only.
+
+## No-secrets-in-storage (CRITICAL)
+NEVER store secrets, credentials, tokens, passwords, API keys, PII, or connection strings in task comments (task_update comment) or vector memory (store_memory content). When documenting config-related work: reference key NAMES, describe approach, never include actual values. If error log contains secrets: strip sensitive values before storing. Acceptable: "Updated DB_HOST in .env", "Rotated API_KEY for service X". Forbidden: "Set DB_HOST=192.168.1.5", "API_KEY=sk-abc123...".
+- **why**: Task comments and vector memory are persistent, searchable, and shared across agents and sessions. Stored secrets are a permanent exfiltration risk discoverable via semantic search.
+- **on_violation**: Review content before store_memory/task_update. Strip all literal secret values. Keep only key names and descriptions.
+
+## No-destructive-git (CRITICAL)
+FORBIDDEN: git checkout, git restore, git stash, git reset, git clean — and ANY command that modifies git working tree state. These destroy uncommitted work from parallel agents, user WIP, and memory/ SQLite databases (vector memory + tasks). Rollback = Read original content + Write/Edit back. Git is READ-ONLY: status, diff, log, blame only.
+- **why**: memory/ folder contains project SQLite databases tracked in git. git checkout/stash/reset reverts these databases, destroying ALL tasks and memories. Parallel agents have uncommitted changes — any working tree modification wipes their work. Unrecoverable data loss.
+- **on_violation**: ABORT git command. Use Read to get original content, Write/Edit to restore specific files. Never touch git working tree state.
+
+## No-destructive-git-in-agents (CRITICAL)
+When delegating to agents: ALWAYS include in prompt: "FORBIDDEN: git checkout, git restore, git stash, git reset, git clean. Rollback = Read + Write. Git is READ-ONLY."
+- **why**: Sub-agents do not inherit parent rules. Without explicit prohibition, agents will use git for rollback and destroy parallel work.
+- **on_violation**: Add git prohibition to agent prompt before delegation.
+
+## Memory-folder-sacred (CRITICAL)
+memory/ folder contains SQLite databases (vector memory + tasks). SACRED — protect at ALL times. NEVER git checkout/restore/reset/clean memory/ — these DESTROY all project knowledge irreversibly. In PARALLEL CONTEXT: use "git add {specific_files}" (task-scope only) — memory/ excluded implicitly because it is not in task files. In NON-PARALLEL context: "git add -A" is safe and DESIRED — includes memory/ for full state checkpoint preserving knowledge base alongside code.
+- **why**: memory/ is the project persistent brain. Destructive git commands on memory/ = total knowledge loss. In parallel mode, concurrent SQLite writes + git add -A = binary merge conflicts and staged half-done sibling work. In sequential mode, committing memory/ preserves full project state for safe revert.
+- **on_violation**: NEVER destructive git on memory/. Parallel: git add specific files only (memory/ not in scope). Non-parallel: git add -A (full checkpoint with memory/).
+
+## Task-tags-predefined-only (CRITICAL)
+Task tags MUST use ONLY predefined values. FORBIDDEN: inventing new tags, synonyms, variations. Allowed: decomposed, validation-fix, blocked, stuck, needs-research, light-validation, parallel-safe, atomic, manual-only, regression, feature, bugfix, refactor, research, docs, test, chore, spike, hotfix, backend, frontend, database, api, auth, ui, config, infra, ci-cd, migration, strict:relaxed, strict:standard, strict:strict, strict:paranoid, cognitive:minimal, cognitive:standard, cognitive:deep, cognitive:exhaustive, batch:trivial.
+- **why**: Ad-hoc tags cause explosion ("user-auth", "authentication", "auth" = same thing, search finds none). Predefined list = consistent search.
+- **on_violation**: Replace with closest predefined match. No match = skip tag, put context in content.
+
+## Memory-tags-predefined-only (CRITICAL)
+Memory tags MUST use ONLY predefined values. Allowed: pattern, solution, `failure`, decision, insight, workaround, deprecated, project-wide, module-specific, temporary, reusable.
+- **why**: Unknown tags = unsearchable memories. Predefined = discoverable.
+- **on_violation**: Replace with closest predefined match.
+
+## Memory-categories-predefined-only (CRITICAL)
+Memory category MUST be one of: code-solution, bug-fix, architecture, learning, debugging, performance, security, project-context. FORBIDDEN: "other", "general", "misc", or unlisted.
+- **why**: "other" is garbage nobody searches. Every memory needs meaningful category.
+- **on_violation**: Choose most relevant from predefined list.
+
+## Mandatory-level-tags (CRITICAL)
+EVERY task MUST have exactly ONE strict:* tag AND ONE cognitive:* tag. Allowed strict: strict:relaxed, strict:standard, strict:strict, strict:paranoid. Allowed cognitive: cognitive:minimal, cognitive:standard, cognitive:deep, cognitive:exhaustive. Missing level tags = assign based on task scope analysis.
+- **why**: Level tags enable per-task compilation and cognitive load calibration. Without them, system defaults apply blindly regardless of task complexity.
+- **on_violation**: Analyze task scope and assign: strict:{level} + cognitive:{level}. Simple rename = strict:relaxed + cognitive:minimal. Production auth = strict:strict + cognitive:deep.
+
+## Safety-escalation-non-overridable (CRITICAL)
+After loading task, check file paths in task.content/comment. If files match safety patterns → effective level MUST be >= pattern minimum, regardless of task tags or .env default. Agent tags are suggestions UPWARD only — can raise above safety floor, never lower below it.
+- **why**: Safety patterns guarantee minimum protection for critical code areas. Agent cannot "cheat" by under-tagging a task touching auth/ or payments/.
+- **on_violation**: Raise effective level to safety floor. Log escalation in task comment.
+
+## Failure-policy-tool-error (CRITICAL)
+TOOL ERROR / MCP FAILURE: 1) Retry ONCE with same parameters. 2) Still fails → STOP current step. 3) Store `failure` to memory (category: "debugging", tags: ["failure"]). 4) Update task comment: "BLOCKED: {tool} failed after retry. Error: {msg}", append_comment: true. 5) -y mode: set status "pending" (return to queue for retry), abort current workflow. Interactive: ask user "Tool failed. Retry/Skip/Abort?". NEVER set "stopped" on `failure` — "stopped" = permanently cancelled.
+- **why**: Consistent tool `failure` handling across all commands. One retry catches transient issues. Failed task returns to `pending` queue — it is NOT cancelled, just needs another attempt or manual intervention.
+- **on_violation**: Follow 5-step sequence. Max 1 retry for same tool call. Always store `failure` to memory. Status → `pending`, NEVER `stopped`.
+
+## Failure-policy-missing-docs (HIGH)
+MISSING DOCS: 1) Apply aggressive-docs-search (3+ keyword variations). 2) All variations exhausted → conclude "no docs". 3) Proceed using: task.content (primary spec) + vector memory context + parent task context. 4) Log in task comment: "No documentation found after {N} search attempts. Proceeding with task.content.", append_comment: true. NOT a blocker — absence of docs is information, not `failure`.
+- **why**: Missing docs must not block execution. task.content is the minimum viable specification. Blocking on missing docs causes pipeline stalls for tasks that never had docs.
+- **on_violation**: Never block on missing docs. Search aggressively, then proceed with available context.
+
+## Failure-policy-ambiguous-spec (HIGH)
+AMBIGUOUS SPEC: 1) Identify SPECIFIC ambiguity (not "task is unclear" but "field X: type A or B?"). 2) -y mode: choose conservative/safe interpretation, log decision in task comment: "DECISION: interpreted {X} as {Y} because {reason}", append_comment: true. 3) Interactive: ask ONE targeted question about the SPECIFIC gap. 4) After 1 clarification → proceed. NEVER ask open-ended "what did you mean?" or multiple follow-ups.
+- **why**: Ambiguity paralysis wastes more time than conservative interpretation. One precise question is enough — if user wanted detailed spec, they would have written docs.
+- **on_violation**: Identify specific gap. One question or auto-decide. Proceed.
+
 ## Topic-required (CRITICAL)
 Brainstorm topic MUST be provided as first argument. If empty, ask user for topic before proceeding.
 - **why**: Cannot brainstorm without a subject. Topic defines the entire session direction.
@@ -48,11 +113,58 @@ brainstorm topic MUST search vector memory BEFORE task execution AND store learn
 - **on_violation**: Include explicit vector memory instructions in agent Task() delegation.
 
 
-# Input capture
-GOAL(Capture brainstorm topic from command arguments)
-- `1`: STORE-AS($RAW_INPUT = $ARGUMENTS)
-- `2`: STORE-AS($BRAINSTORM_TOPIC = {brainstorm topic extracted from $RAW_INPUT})
-- `3`: IF($BRAINSTORM_TOPIC is empty OR $RAW_INPUT is empty) →
+# Task tag selection
+GOAL(Select tags per task. Combine dimensions for precision.)
+WORKFLOW (pipeline stage): decomposed, validation-fix, blocked, stuck, needs-research, light-validation, parallel-safe, atomic, manual-only, regression
+TYPE (work kind): feature, bugfix, refactor, research, docs, test, chore, spike, hotfix
+DOMAIN (area): backend, frontend, database, api, auth, ui, config, infra, ci-cd, migration
+STRICT LEVEL: strict:relaxed, strict:standard, strict:strict, strict:paranoid
+COGNITIVE LEVEL: cognitive:minimal, cognitive:standard, cognitive:deep, cognitive:exhaustive
+BATCH: batch:trivial
+Formula: 1 TYPE + 1 DOMAIN + 0-2 WORKFLOW + 1 STRICT + 1 COGNITIVE. Example: ["feature", "api", "strict:standard", "cognitive:standard"] or ["bugfix", "auth", "validation-fix", "strict:strict", "cognitive:deep"].
+
+# Memory tag selection
+GOAL(Select 1-3 tags per memory. Combine dimensions.)
+CONTENT (kind): pattern, solution, `failure`, decision, insight, workaround, deprecated
+SCOPE (breadth): project-wide, module-specific, temporary, reusable
+Formula: 1 CONTENT + 0-1 SCOPE. Example: ["solution", "reusable"] or ["failure", "module-specific"]. Max 3 tags.
+
+# Safety escalation patterns
+GOAL(Automatic level escalation based on file patterns and context)
+File patterns → strict minimum: auth/, guards/, policies/, permissions/ → strict. payments/, billing/, stripe/, subscription/ → strict. .env, credentials, secrets, config/auth → paranoid. migrations/, schema → strict. composer.json, package.json, *.lock → standard. CI/, .github/, Dockerfile, docker-compose → strict. routes/, middleware/ → standard.
+Context patterns → level minimum: priority=critical → strict+deep. tag hotfix or production → strict+standard. touches >10 files → standard+standard. tag breaking-change → strict+deep. Keywords security/encryption/auth/permission → strict. Keywords migration/schema/database/drop → strict.
+
+# Cognitive level
+GOAL(Cognitive level: standard — calibrate analysis depth accordingly)
+Memory probes per phase: 2-3 targeted
+Failure history: recent only
+Research (context7/web): on error/ambiguity
+Agent scaling: auto (2-3)
+Comment parsing: basic parse
+
+# Aggressive docs search
+GOAL(Find documentation even if named differently than task/code)
+- `1`: Generate keyword variations from task title/content:
+- `2`:   1. Original: "FocusModeTest" → search "FocusModeTest"
+- `3`:   2. Split CamelCase: "FocusModeTest" → search "FocusMode", "Focus Mode"
+- `4`:   3. Remove suffix: "FocusModeTest" → search "Focus" (remove Mode, Test)
+- `5`:   4. Domain words: extract meaningful nouns → search each
+- `6`:   5. Parent context: if task has parent → include parent title keywords
+- `7`: Common suffixes to STRIP: Test, Tests, Controller, Service, Repository, Command, Handler, Provider, Factory, Manager, Helper, Validator, Processor
+- `8`: Search ORDER: most specific → most general. STOP when found.
+- `9`: Minimum 3 search attempts before concluding "no documentation".
+- `10`: WRONG: brain docs "UserAuthenticationServiceTest" → not found → done
+- `11`: RIGHT: brain docs "UserAuthenticationServiceTest" → not found → brain docs "UserAuthentication" → not found → brain docs "Authentication" → FOUND!
+
+# Input
+STORE-AS($RAW_INPUT = $ARGUMENTS)
+STORE-AS($HAS_AUTO_APPROVE = {true if $RAW_INPUT contains "-y" or "--yes"})
+STORE-AS($CLEAN_ARGS = {$RAW_INPUT with -y/--yes flags removed})
+STORE-AS($BRAINSTORM_TOPIC = {brainstorm topic extracted from $CLEAN_ARGS})
+
+# Input brainstorm fallback
+GOAL(Handle empty brainstorm topic)
+- `1`: IF($BRAINSTORM_TOPIC is empty OR $CLEAN_ARGS is empty) →
   OUTPUT(=== DO:BRAINSTORM ===  What topic would you like to brainstorm?)
   WAIT for user to provide topic
   STORE-AS($BRAINSTORM_TOPIC = {user-provided topic})
@@ -99,12 +211,12 @@ GOAL(Delegate to specialized agents for deep research when needed. Agents alread
 # Phase2 brainstorm session
 GOAL(Facilitate structured ideation with user collaboration)
 - `1`: OUTPUT( === PHASE 2: BRAINSTORM SESSION === Topic: {$BRAINSTORM_TOPIC}  ---)
-- `2`: mcp__sequential-thinking__sequentialthinking('{'."\\n"
-    .'                thought: "Analyzing brainstorm topic: {$BRAINSTORM_TOPIC}. Considering: problem space, constraints, stakeholders, `success` criteria, potential approaches.",'."\\n"
-    .'                thoughtNumber: 1,'."\\n"
-    .'                totalThoughts: 4,'."\\n"
-    .'                nextThoughtNeeded: true'."\\n"
-    .'            }')
+- `2`: mcp__sequential-thinking__sequentialthinking({
+                thought: "Analyzing brainstorm topic: {$BRAINSTORM_TOPIC}. Considering: problem space, constraints, stakeholders, `success` criteria, potential approaches.",
+                thoughtNumber: 1,
+                totalThoughts: 4,
+                nextThoughtNeeded: true
+            })
 - `3`: Present ideas structured by category:
 - `4`: OUTPUT(## Context {Relevant findings from memory, research, documentation}  ## Approaches {List 2-4 potential approaches with brief descriptions}  ## Analysis  ### Approach 1: {name} - Pros: {advantages} - Cons: {disadvantages} - Complexity: {low/medium/high} - Risk: {low/medium/high}  ### Approach 2: {name} {same structure...}  ## Recommendation {Top recommendation with rationale}  ## Open Questions {Questions that need user input or further exploration})
 
@@ -134,12 +246,12 @@ GOAL(Continuously generate and refine ideas until user confirms completion. Keep
 
 # Phase2b action selection
 GOAL(After ideation complete, present action options)
-- `1`: mcp__sequential-thinking__sequentialthinking('{'."\\n"
-    .'                thought: "Synthesizing all collected ideas from brainstorm session. Evaluating: feasibility, priority, dependencies, risks, actionability.",'."\\n"
-    .'                thoughtNumber: 1,'."\\n"
-    .'                totalThoughts: 3,'."\\n"
-    .'                nextThoughtNeeded: true'."\\n"
-    .'            }')
+- `1`: mcp__sequential-thinking__sequentialthinking({
+                thought: "Synthesizing all collected ideas from brainstorm session. Evaluating: feasibility, priority, dependencies, risks, actionability.",
+                thoughtNumber: 1,
+                totalThoughts: 3,
+                nextThoughtNeeded: true
+            })
 - `2`: OUTPUT( === IDEATION COMPLETE ===  ## Collected Ideas Summary {Summary of all ideas discussed}  ---  What would you like to do next? 1. Invite a specialist agent for alternative perspective 2. Research a specific aspect further 3. Create tasks from these ideas 4. Wrap up and save insights)
 - `3`: WAIT for user to select action
 
@@ -159,19 +271,20 @@ GOAL(Invite subagent as additional specialist for alternative perspective (diffe
 GOAL(Convert brainstorm outcomes to actionable vector tasks when requested)
 - `1`: IF(user requests task creation) →
   OUTPUT( === PHASE 3: TASK CREATION === Converting brainstorm outcomes to tasks...)
-  mcp__sequential-thinking__sequentialthinking('{'."\\n"
-    .'                    thought: "Converting brainstorm ideas to tasks. Analyzing: task boundaries, dependencies, optimal order, effort estimation, priority assignment.",'."\\n"
-    .'                    thoughtNumber: 1,'."\\n"
-    .'                    totalThoughts: 3,'."\\n"
-    .'                    nextThoughtNeeded: true'."\\n"
-    .'                }')
+  mcp__sequential-thinking__sequentialthinking({
+                    thought: "Converting brainstorm ideas to tasks. Analyzing: task boundaries, dependencies, optimal order, effort estimation, priority assignment.",
+                    thoughtNumber: 1,
+                    totalThoughts: 3,
+                    nextThoughtNeeded: true
+                })
   Compile actionable items from brainstorm session
-  STORE-AS($ACTIONABLE_ITEMS = [{title, description, priority, estimate, order}, ...])
+  Analyze independence: items targeting different files/components with no shared state = parallel: true
+  STORE-AS($ACTIONABLE_ITEMS = [{title, description, priority, estimate, order, parallel}, ...])
   OUTPUT(Proposed tasks:  {For each item:} - **{title}** (Priority: {priority}, Est: {estimate}h)   {description}  ---  Options: 1. Create as standalone tasks (no parent) 2. Create under existing task (provide task ID) 3. Modify task list first 4. Cancel task creation)
   WAIT for user choice
   IF(user chooses standalone) →
   FOREACH(item in $ACTIONABLE_ITEMS) →
-  mcp__vector-task__task_create('{title: "{item.title}", content: "{item.description}", priority: "{item.priority}", estimate: {item.estimate}, tags: ["brainstorm"]}')
+  mcp__vector-task__task_create('{title: "{item.title}", content: "{item.description}", priority: "{item.priority}", estimate: {item.estimate}, order: {item.order}, parallel: {item.parallel}, tags: ["spike"]}')
 → END-FOREACH
   STORE-AS($CREATED_TASK_IDS = [ids...])
   OUTPUT(Created {count} standalone tasks: {ids})
@@ -179,7 +292,7 @@ GOAL(Convert brainstorm outcomes to actionable vector tasks when requested)
   IF(user provides parent task ID) →
   STORE-AS($PARENT_TASK_ID = {user-provided ID})
   FOREACH(item in $ACTIONABLE_ITEMS) →
-  mcp__vector-task__task_create('{title: "{item.title}", content: "{item.description}", parent_id: $PARENT_TASK_ID, priority: "{item.priority}", estimate: {item.estimate}, tags: ["brainstorm"]}')
+  mcp__vector-task__task_create('{title: "{item.title}", content: "{item.description}", parent_id: $PARENT_TASK_ID, priority: "{item.priority}", estimate: {item.estimate}, order: {item.order}, parallel: {item.parallel}, tags: ["spike"]}')
 → END-FOREACH
   STORE-AS($CREATED_TASK_IDS = [ids...])
   OUTPUT(Created {count} subtasks under #{$PARENT_TASK_ID}: {ids})
@@ -189,42 +302,11 @@ GOAL(Convert brainstorm outcomes to actionable vector tasks when requested)
 # Phase4 completion
 GOAL(Summarize session and store insights to vector memory)
 - `1`: STORE-AS($SESSION_SUMMARY = {key decisions, insights, approaches discussed, next steps})
-- `2`: mcp__vector-memory__store_memory('{content: "Brainstorm Session: {$BRAINSTORM_TOPIC}\\\\n\\\\nContext:\\\\n{context_summary}\\\\n\\\\nApproaches Discussed:\\\\n{approaches}\\\\n\\\\nKey Insights:\\\\n{insights}\\\\n\\\\nDecisions Made:\\\\n{decisions}\\\\n\\\\nNext Steps:\\\\n{next_steps}\\\\n\\\\nTasks Created: {task_ids or none}", category: "architecture", tags: ["brainstorm", "{topic_tag}"]}')
+- `2`: mcp__vector-memory__store_memory('{content: "Brainstorm Session: {$BRAINSTORM_TOPIC}\\\\n\\\\nContext:\\\\n{context_summary}\\\\n\\\\nApproaches Discussed:\\\\n{approaches}\\\\n\\\\nKey Insights:\\\\n{insights}\\\\n\\\\nDecisions Made:\\\\n{decisions}\\\\n\\\\nNext Steps:\\\\n{next_steps}\\\\n\\\\nTasks Created: {task_ids or none}", category: "architecture", tags: ["decision", "reusable"]}')
 - `3`: OUTPUT( === BRAINSTORM COMPLETE === Topic: {$BRAINSTORM_TOPIC} Session insights stored to vector memory Tasks created: {count or "none"}  Use /task:brainstorm #{id} to brainstorm specific aspects of created tasks.)
 
-# Error handling
+# Error recovery
 Graceful error handling with recovery options
-- `1`: IF(user rejects plan) →
-  Accept modifications
-  Rebuild plan
-  Re-submit for approval
-→ END-IF
-- `2`: IF(no agents available) →
-  Report: "No agents found via brain list:masters"
-  Suggest: Run /init-agents first
-  Abort command
-→ END-IF
-- `3`: IF(agent execution fails) →
-  Log: "Step/Agent {N} failed: {error}"
-  Offer options:
-    1. Retry current step
-    2. Skip and continue
-    3. Abort remaining steps
-  WAIT for user decision
-→ END-IF
-- `4`: IF(documentation scan fails) →
-  Log: "brain docs command failed or no documentation found"
-  Proceed without documentation context
-  Note: "Documentation context unavailable"
-→ END-IF
-- `5`: IF(memory storage fails) →
-  Log: "Failed to store to memory: {error}"
-  Report findings in output instead
-  Continue with report
-→ END-IF
-
-# Error handling brainstorm
-Brainstorm-specific error handling
 - `1`: IF(topic is too vague) →
   Ask for clarification: "Could you be more specific? E.g., architecture for X, implementation of Y"
   WAIT for refined topic
@@ -236,6 +318,25 @@ Brainstorm-specific error handling
 - `3`: IF(no relevant memory/research found) →
   Proceed with general knowledge
   Note to user: "No prior context found. Starting fresh brainstorm."
+→ END-IF
+- `4`: IF(no agents available) →
+  Report: "No agents found via brain list:masters"
+  Suggest: Run /init-agents first
+  Abort command
+→ END-IF
+- `5`: IF(agent execution fails) →
+  Log: "Agent {name} failed: {error}"
+  Proceed without agent input
+  Note: "Agent consultation unavailable"
+→ END-IF
+- `6`: IF(documentation scan fails) →
+  Log: "brain docs command failed or no documentation found"
+  Proceed without documentation context
+→ END-IF
+- `7`: IF(memory storage fails) →
+  Log: "Failed to store to memory: {error}"
+  Report findings in output instead
+  Continue with report
 → END-IF
 
 # Response format

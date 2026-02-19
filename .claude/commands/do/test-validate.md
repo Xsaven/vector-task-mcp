@@ -9,7 +9,7 @@ description: "Comprehensive test validation with parallel agent orchestration"
 <description>Comprehensive test validation with parallel agent orchestration</description>
 </meta>
 <execute>Validates test coverage against documentation requirements, test quality (no bloat, real workflows), test consistency, and completeness. Uses 6 parallel agents for thorough validation. Creates follow-up tasks for missing tests, failing tests, and refactoring needs. For vector tasks: requires status "completed", sets to "in_progress" during validation, returns to "completed" with findings. Idempotent - can be run multiple times safely. Accepts $ARGUMENTS: vector task reference (task N, task:N, #N) or plain description.</execute>
-<provides>Text-based test validation with parallel agent orchestration. Accepts text description (example: "test-validate user authentication"). Validates test coverage against documentation requirements, test quality (no bloat, real workflows), test consistency, and completeness. Creates memory entries for gaps. Idempotent. For vector task test validation use /task:test-validate.</provides>
+<provides>Text-based test validation with parallel agent orchestration. Accepts text description (example: "test-validate user authentication"). Validates test coverage against documentation requirements, test quality (no bloat, real workflows), test consistency, and completeness. Creates vector tasks for gaps. Idempotent. For vector task test validation use /task:test-validate.</provides>
 
 # Iron Rules
 ## Entry-point-blocking (CRITICAL)
@@ -17,10 +17,75 @@ ON RECEIVING $RAW_INPUT: Your FIRST output MUST be "=== DO:TEST-VALIDATE ACTIVAT
 - **why**: Without explicit entry point, Brain skips workflow and executes directly. Entry point forces workflow compliance.
 - **on_violation**: STOP IMMEDIATELY. Delete any tool calls. Output "=== DO:TEST-VALIDATE ACTIVATED ===" and restart from Phase 0.
 
+## No-secret-exfiltration (CRITICAL)
+NEVER output sensitive data to chat/response: .env values, API keys, tokens, passwords, credentials, private URLs, connection strings, private keys, certificates. When reading config/.env for CONTEXT: extract key NAMES and STRUCTURE only, never raw values. If user asks to show .env or config with secrets: show key names, mask values as "***". If error output contains secrets: redact before displaying.
+- **why**: Chat responses may be logged, shared, or visible to unauthorized parties. Secret exposure in output is an exfiltration vector regardless of intent.
+- **on_violation**: REDACT immediately. Replace value with "***" or "[REDACTED]". Show key names only.
+
+## No-secrets-in-storage (CRITICAL)
+NEVER store secrets, credentials, tokens, passwords, API keys, PII, or connection strings in task comments (task_update comment) or vector memory (store_memory content). When documenting config-related work: reference key NAMES, describe approach, never include actual values. If error log contains secrets: strip sensitive values before storing. Acceptable: "Updated DB_HOST in .env", "Rotated API_KEY for service X". Forbidden: "Set DB_HOST=192.168.1.5", "API_KEY=sk-abc123...".
+- **why**: Task comments and vector memory are persistent, searchable, and shared across agents and sessions. Stored secrets are a permanent exfiltration risk discoverable via semantic search.
+- **on_violation**: Review content before store_memory/task_update. Strip all literal secret values. Keep only key names and descriptions.
+
+## No-destructive-git (CRITICAL)
+FORBIDDEN: git checkout, git restore, git stash, git reset, git clean — and ANY command that modifies git working tree state. These destroy uncommitted work from parallel agents, user WIP, and memory/ SQLite databases (vector memory + tasks). Rollback = Read original content + Write/Edit back. Git is READ-ONLY: status, diff, log, blame only.
+- **why**: memory/ folder contains project SQLite databases tracked in git. git checkout/stash/reset reverts these databases, destroying ALL tasks and memories. Parallel agents have uncommitted changes — any working tree modification wipes their work. Unrecoverable data loss.
+- **on_violation**: ABORT git command. Use Read to get original content, Write/Edit to restore specific files. Never touch git working tree state.
+
+## No-destructive-git-in-agents (CRITICAL)
+When delegating to agents: ALWAYS include in prompt: "FORBIDDEN: git checkout, git restore, git stash, git reset, git clean. Rollback = Read + Write. Git is READ-ONLY."
+- **why**: Sub-agents do not inherit parent rules. Without explicit prohibition, agents will use git for rollback and destroy parallel work.
+- **on_violation**: Add git prohibition to agent prompt before delegation.
+
+## Memory-folder-sacred (CRITICAL)
+memory/ folder contains SQLite databases (vector memory + tasks). SACRED — protect at ALL times. NEVER git checkout/restore/reset/clean memory/ — these DESTROY all project knowledge irreversibly. In PARALLEL CONTEXT: use "git add {specific_files}" (task-scope only) — memory/ excluded implicitly because it is not in task files. In NON-PARALLEL context: "git add -A" is safe and DESIRED — includes memory/ for full state checkpoint preserving knowledge base alongside code.
+- **why**: memory/ is the project persistent brain. Destructive git commands on memory/ = total knowledge loss. In parallel mode, concurrent SQLite writes + git add -A = binary merge conflicts and staged half-done sibling work. In sequential mode, committing memory/ preserves full project state for safe revert.
+- **on_violation**: NEVER destructive git on memory/. Parallel: git add specific files only (memory/ not in scope). Non-parallel: git add -A (full checkpoint with memory/).
+
+## Task-tags-predefined-only (CRITICAL)
+Task tags MUST use ONLY predefined values. FORBIDDEN: inventing new tags, synonyms, variations. Allowed: decomposed, validation-fix, blocked, stuck, needs-research, light-validation, parallel-safe, atomic, manual-only, regression, feature, bugfix, refactor, research, docs, test, chore, spike, hotfix, backend, frontend, database, api, auth, ui, config, infra, ci-cd, migration, strict:relaxed, strict:standard, strict:strict, strict:paranoid, cognitive:minimal, cognitive:standard, cognitive:deep, cognitive:exhaustive, batch:trivial.
+- **why**: Ad-hoc tags cause explosion ("user-auth", "authentication", "auth" = same thing, search finds none). Predefined list = consistent search.
+- **on_violation**: Replace with closest predefined match. No match = skip tag, put context in content.
+
+## Memory-tags-predefined-only (CRITICAL)
+Memory tags MUST use ONLY predefined values. Allowed: pattern, solution, `failure`, decision, insight, workaround, deprecated, project-wide, module-specific, temporary, reusable.
+- **why**: Unknown tags = unsearchable memories. Predefined = discoverable.
+- **on_violation**: Replace with closest predefined match.
+
+## Memory-categories-predefined-only (CRITICAL)
+Memory category MUST be one of: code-solution, bug-fix, architecture, learning, debugging, performance, security, project-context. FORBIDDEN: "other", "general", "misc", or unlisted.
+- **why**: "other" is garbage nobody searches. Every memory needs meaningful category.
+- **on_violation**: Choose most relevant from predefined list.
+
+## Mandatory-level-tags (CRITICAL)
+EVERY task MUST have exactly ONE strict:* tag AND ONE cognitive:* tag. Allowed strict: strict:relaxed, strict:standard, strict:strict, strict:paranoid. Allowed cognitive: cognitive:minimal, cognitive:standard, cognitive:deep, cognitive:exhaustive. Missing level tags = assign based on task scope analysis.
+- **why**: Level tags enable per-task compilation and cognitive load calibration. Without them, system defaults apply blindly regardless of task complexity.
+- **on_violation**: Analyze task scope and assign: strict:{level} + cognitive:{level}. Simple rename = strict:relaxed + cognitive:minimal. Production auth = strict:strict + cognitive:deep.
+
+## Safety-escalation-non-overridable (CRITICAL)
+After loading task, check file paths in task.content/comment. If files match safety patterns → effective level MUST be >= pattern minimum, regardless of task tags or .env default. Agent tags are suggestions UPWARD only — can raise above safety floor, never lower below it.
+- **why**: Safety patterns guarantee minimum protection for critical code areas. Agent cannot "cheat" by under-tagging a task touching auth/ or payments/.
+- **on_violation**: Raise effective level to safety floor. Log escalation in task comment.
+
+## Failure-policy-tool-error (CRITICAL)
+TOOL ERROR / MCP FAILURE: 1) Retry ONCE with same parameters. 2) Still fails → STOP current step. 3) Store `failure` to memory (category: "debugging", tags: ["failure"]). 4) Update task comment: "BLOCKED: {tool} failed after retry. Error: {msg}", append_comment: true. 5) -y mode: set status "pending" (return to queue for retry), abort current workflow. Interactive: ask user "Tool failed. Retry/Skip/Abort?". NEVER set "stopped" on `failure` — "stopped" = permanently cancelled.
+- **why**: Consistent tool `failure` handling across all commands. One retry catches transient issues. Failed task returns to `pending` queue — it is NOT cancelled, just needs another attempt or manual intervention.
+- **on_violation**: Follow 5-step sequence. Max 1 retry for same tool call. Always store `failure` to memory. Status → `pending`, NEVER `stopped`.
+
+## Failure-policy-missing-docs (HIGH)
+MISSING DOCS: 1) Apply aggressive-docs-search (3+ keyword variations). 2) All variations exhausted → conclude "no docs". 3) Proceed using: task.content (primary spec) + vector memory context + parent task context. 4) Log in task comment: "No documentation found after {N} search attempts. Proceeding with task.content.", append_comment: true. NOT a blocker — absence of docs is information, not `failure`.
+- **why**: Missing docs must not block execution. task.content is the minimum viable specification. Blocking on missing docs causes pipeline stalls for tasks that never had docs.
+- **on_violation**: Never block on missing docs. Search aggressively, then proceed with available context.
+
+## Failure-policy-ambiguous-spec (HIGH)
+AMBIGUOUS SPEC: 1) Identify SPECIFIC ambiguity (not "task is unclear" but "field X: type A or B?"). 2) -y mode: choose conservative/safe interpretation, log decision in task comment: "DECISION: interpreted {X} as {Y} because {reason}", append_comment: true. 3) Interactive: ask ONE targeted question about the SPECIFIC gap. 4) After 1 clarification → proceed. NEVER ask open-ended "what did you mean?" or multiple follow-ups.
+- **why**: Ambiguity paralysis wastes more time than conservative interpretation. One precise question is enough — if user wanted detailed spec, they would have written docs.
+- **on_violation**: Identify specific gap. One question or auto-decide. Proceed.
+
 ## Test-validation-only (CRITICAL)
-TEST VALIDATION command validates EXISTING tests. NEVER write tests directly. Only validate and CREATE MEMORY ENTRIES for missing/broken tests.
+TEST VALIDATION command validates EXISTING tests. NEVER write tests directly. Only validate and CREATE VECTOR TASKS for missing/broken tests.
 - **why**: Validation is read-only audit. Test writing belongs to do:async.
-- **on_violation**: Abort any test writing. Create memory entry instead.
+- **on_violation**: Abort any test writing. Create vector task instead.
 
 ## Text-description-required (CRITICAL)
 $RAW_INPUT MUST be a text description of work to test-validate. Optional flags (-y, --yes) may be appended. Extract flags first, then verify remaining text is NOT a task ID pattern (15, #15, task 15). Examples: "test-validate auth -y", "check user module --yes".
@@ -33,9 +98,9 @@ Tests MUST cover REAL workflows end-to-end. Reject bloated tests that test imple
 - **on_violation**: Flag bloated tests for refactoring. Create memory entry to simplify.
 
 ## Documentation-requirements-coverage (CRITICAL)
-EVERY requirement in .docs/ MUST have corresponding test coverage. Missing coverage = immediate memory entry creation.
+EVERY requirement in .docs/ MUST have corresponding test coverage. Missing coverage = vector task creation for uncovered requirements.
 - **why**: Documentation defines expected behavior. Untested requirements are unverified.
-- **on_violation**: Create memory entry for each uncovered requirement.
+- **on_violation**: Create vector task for uncovered requirements.
 
 ## Parallel-agent-orchestration (HIGH)
 Validation phases MUST use parallel agent orchestration (5-6 agents simultaneously) for efficiency. Each agent validates one aspect.
@@ -52,11 +117,98 @@ ALL test validation results MUST search vector memory BEFORE task execution AND 
 - **why**: Enables knowledge sharing between agents, prevents duplicate work, maintains execution continuity across steps
 - **on_violation**: Include explicit vector memory instructions in agent Task() delegation.
 
+## Phase-sequence-strict (CRITICAL)
+Phases MUST execute in STRICT sequential order: Phase 0 → ... → Phase 8. NO phase may start until previous phase is FULLY COMPLETED. Each phase MUST output its header "=== PHASE N: NAME ===" before any actions.
+- **why**: Sequential execution ensures data dependencies are satisfied. Each phase depends on variables stored by previous phases.
+- **on_violation**: STOP. Return to last `completed` phase. Execute current phase fully before proceeding.
+
+## No-phase-skip (CRITICAL)
+FORBIDDEN: Skipping phases. ALL phases 0-8 MUST execute even if a phase has no issues to report. Empty results are valid; skipped phases are VIOLATION.
+- **why**: Phase skipping breaks data flow. Later phases expect variables from earlier phases.
+- **on_violation**: ABORT. Return to first skipped phase. Execute ALL phases in sequence.
+
+## Phase-completion-marker (HIGH)
+Each phase MUST end with its output block before next phase begins. Phase N output MUST appear before "=== PHASE N+1 ===" header.
+- **why**: Output markers confirm phase completion. Missing output = incomplete phase.
+- **on_violation**: Complete current phase output before starting next phase.
+
+## No-parallel-phases (CRITICAL)
+FORBIDDEN: Executing multiple phases simultaneously. Only Phase 4/5 allows parallel AGENTS within the phase. Phase-level parallelism is NEVER allowed.
+- **why**: Phase parallelism causes race conditions on shared variables.
+- **on_violation**: Serialize phase execution. Wait for phase completion before starting next.
+
+## Do-machine-readable-progress (HIGH)
+ALL progress output MUST follow structured format. DURING EXECUTION: emit "STATUS: [phase_name] description" at each major workflow phase. AT COMPLETION: emit "RESULT: SUCCESS|PARTIAL|FAILED|PASSED|NEEDS_WORK — key=value, key=value" followed by "NEXT: recommended_command". No free-form progress — only STATUS/RESULT/NEXT lines. Examples: "STATUS: [context] Analyzing task scope" | "STATUS: [execution] Step 3/5 complete" | "RESULT: SUCCESS — steps=5/5, files=3" | "NEXT: /do:validate {description}".
+- **why**: Structured format enables UI rendering, orchestrator parsing, and consistent user experience. Matches Task command output contract for uniform tooling.
+- **on_violation**: Reformat to STATUS/RESULT/NEXT structure. Replace free-form text with structured lines.
+
+## Do-failure-awareness (CRITICAL)
+BEFORE starting work: search memory category "debugging" for KNOWN FAILURES related to $TASK_DESCRIPTION. Found → extract failed approaches and BLOCK them. Pass blocked approaches to agents (async) or exclude from plan (sync). Do NOT attempt solutions that already failed.
+- **why**: Repeating failed solutions wastes time and context. Memory contains "this does NOT work" knowledge from previous sessions.
+- **on_violation**: Search debugging memories FIRST. Block known-failed approaches in plan/delegation.
+
+
+# Task tag selection
+GOAL(Select tags per task. Combine dimensions for precision.)
+WORKFLOW (pipeline stage): decomposed, validation-fix, blocked, stuck, needs-research, light-validation, parallel-safe, atomic, manual-only, regression
+TYPE (work kind): feature, bugfix, refactor, research, docs, test, chore, spike, hotfix
+DOMAIN (area): backend, frontend, database, api, auth, ui, config, infra, ci-cd, migration
+STRICT LEVEL: strict:relaxed, strict:standard, strict:strict, strict:paranoid
+COGNITIVE LEVEL: cognitive:minimal, cognitive:standard, cognitive:deep, cognitive:exhaustive
+BATCH: batch:trivial
+Formula: 1 TYPE + 1 DOMAIN + 0-2 WORKFLOW + 1 STRICT + 1 COGNITIVE. Example: ["feature", "api", "strict:standard", "cognitive:standard"] or ["bugfix", "auth", "validation-fix", "strict:strict", "cognitive:deep"].
+
+# Memory tag selection
+GOAL(Select 1-3 tags per memory. Combine dimensions.)
+CONTENT (kind): pattern, solution, `failure`, decision, insight, workaround, deprecated
+SCOPE (breadth): project-wide, module-specific, temporary, reusable
+Formula: 1 CONTENT + 0-1 SCOPE. Example: ["solution", "reusable"] or ["failure", "module-specific"]. Max 3 tags.
+
+# Safety escalation patterns
+GOAL(Automatic level escalation based on file patterns and context)
+File patterns → strict minimum: auth/, guards/, policies/, permissions/ → strict. payments/, billing/, stripe/, subscription/ → strict. .env, credentials, secrets, config/auth → paranoid. migrations/, schema → strict. composer.json, package.json, *.lock → standard. CI/, .github/, Dockerfile, docker-compose → strict. routes/, middleware/ → standard.
+Context patterns → level minimum: priority=critical → strict+deep. tag hotfix or production → strict+standard. touches >10 files → standard+standard. tag breaking-change → strict+deep. Keywords security/encryption/auth/permission → strict. Keywords migration/schema/database/drop → strict.
+
+# Cognitive level
+GOAL(Cognitive level: standard — calibrate analysis depth accordingly)
+Memory probes per phase: 2-3 targeted
+Failure history: recent only
+Research (context7/web): on error/ambiguity
+Agent scaling: auto (2-3)
+Comment parsing: basic parse
+
+# Aggressive docs search
+GOAL(Find documentation even if named differently than task/code)
+- `1`: Generate keyword variations from task title/content:
+- `2`:   1. Original: "FocusModeTest" → search "FocusModeTest"
+- `3`:   2. Split CamelCase: "FocusModeTest" → search "FocusMode", "Focus Mode"
+- `4`:   3. Remove suffix: "FocusModeTest" → search "Focus" (remove Mode, Test)
+- `5`:   4. Domain words: extract meaningful nouns → search each
+- `6`:   5. Parent context: if task has parent → include parent title keywords
+- `7`: Common suffixes to STRIP: Test, Tests, Controller, Service, Repository, Command, Handler, Provider, Factory, Manager, Helper, Validator, Processor
+- `8`: Search ORDER: most specific → most general. STOP when found.
+- `9`: Minimum 3 search attempts before concluding "no documentation".
+- `10`: WRONG: brain docs "UserAuthenticationServiceTest" → not found → done
+- `11`: RIGHT: brain docs "UserAuthenticationServiceTest" → not found → brain docs "UserAuthentication" → not found → brain docs "Authentication" → FOUND!
+
+# Do failure awareness
+GOAL(Mine failure history before execution to avoid repeating mistakes)
+- `1`: mcp__vector-memory__search_memories('{query: "$TASK_DESCRIPTION failure", limit: 5, category: "debugging"}')
+- `2`: STORE-AS($KNOWN_FAILURES = {failed approaches, errors, blocked patterns})
+- `3`: IF($KNOWN_FAILURES not empty) →
+  STORE-AS($BLOCKED_APPROACHES = {extracted approaches that MUST NOT be attempted})
+  OUTPUT(Known failures found: {$KNOWN_FAILURES.count}. Blocked approaches: {$BLOCKED_APPROACHES})
+→ END-IF
+- `4`: IF($KNOWN_FAILURES empty) →
+  STORE-AS($BLOCKED_APPROACHES = [])
+  No known failures — proceed freely.
+→ END-IF
 
 # Input
 STORE-AS($RAW_INPUT = $ARGUMENTS)
 STORE-AS($HAS_AUTO_APPROVE = {true if $RAW_INPUT contains "-y" or "--yes"})
-STORE-AS($VALIDATION_TARGET = {target to validate extracted from $RAW_INPUT})
+STORE-AS($CLEAN_ARGS = {$RAW_INPUT with -y/--yes flags removed})
+STORE-AS($VALIDATION_TARGET = {target to validate extracted from $CLEAN_ARGS})
 
 # Phase0 context setup
 GOAL(Detect task ID patterns and reject, set up test validation context from $RAW_INPUT)
@@ -150,18 +302,37 @@ GOAL(Aggregate all test validation results and categorize issues)
 - `11`: STORE-AS($FAILING_TESTS = {tests that fail or are flaky})
 - `12`: OUTPUT(Test validation results: - Missing coverage: {$MISSING_COVERAGE.count} requirements - Partial coverage: {$PARTIAL_COVERAGE.count} requirements - Bloated tests: {$BLOATED_TESTS.count} tests - Missing workflows: {$MISSING_WORKFLOWS.count} workflows - Inconsistent tests: {$INCONSISTENT_TESTS.count} tests - Isolation issues: {$ISOLATION_ISSUES.count} tests - Failing/flaky tests: {$FAILING_TESTS.count} tests)
 
-# Phase7 memory storage
-GOAL(Store test gap findings to vector memory for future reference)
-- `1`: OUTPUT( === PHASE 7: MEMORY STORAGE ===)
-- `2`: Check existing memory entries to avoid duplicates
-- `3`: mcp__vector-memory__search_memories('{query: "test gaps $TASK_DESCRIPTION", limit: 10}')
-- `4`: STORE-AS($EXISTING_TEST_MEMORIES = Existing test gap memories)
-- `5`: IF($ALL_TEST_ISSUES.count > 0) →
-  mcp__vector-memory__store_memory('{content: "Test validation gaps for {$TASK_DESCRIPTION}:\\\\n\\\\n## Missing Coverage ({$MISSING_COVERAGE.count})\\\\n{FOR each req: - {req.description} | Type: {req.expected_test_type} | Scenarios: {req.testable_scenarios}}\\\\n\\\\n## Failing Tests ({$FAILING_TESTS.count})\\\\n{FOR each test: - {test.test_file}:{test.test_method} | Error: {test.error_message}}\\\\n\\\\n## Bloated Tests ({$BLOATED_TESTS.count})\\\\n{FOR each test: - {test.test_file}:{test.test_method} | Bloat: {test.bloat_type} | Suggestion: {test.suggestion}}\\\\n\\\\n## Missing Workflows ({$MISSING_WORKFLOWS.count})\\\\n{FOR each wf: - {wf.workflow} | Missing: {wf.missing_scenarios}}\\\\n\\\\n## Isolation Issues ({$ISOLATION_ISSUES.count})\\\\n{FOR each test: - {test.test_file} | Issue: {test.isolation_issue}}\\\\n\\\\n## Context\\\\n- Memory IDs: {$TEST_MEMORY_CONTEXT.memory_ids}\\\\n- Documentation: {$DOCS_INDEX.paths}", category: "code-solution", tags: ["test-validation", "test-gaps", "do:test-validate"]}')
-  STORE-AS($STORED_MEMORY_ID = {memory_id})
-  OUTPUT(Stored test gaps to memory #{$STORED_MEMORY_ID})
+# Phase7 fix task creation
+GOAL(Create root-level vector tasks for test gaps (consolidated 5-8h batches))
+- `1`: OUTPUT( === PHASE 7: FIX TASK CREATION ===)
+- `2`: Check existing `pending` tasks to avoid duplicates
+- `3`: mcp__vector-task__task_list('{query: "test fix $TASK_DESCRIPTION", status: "pending", limit: 20}')
+- `4`: STORE-AS($EXISTING_FIX_TASKS = Existing `pending` test fix tasks)
+- `5`: Calculate total estimate for ALL test issues:
+- `6`: - Missing coverage: ~3h per requirement (write tests + verify) - Failing tests: ~1h per test (debug + fix) - Bloated tests: ~1h per test (refactor) - Missing workflows: ~4h per workflow (design + write e2e test) - Isolation issues: ~0.5h per test (fix isolation) STORE-AS($TOTAL_ESTIMATE = {sum of all issue estimates in hours})
+- `7`: IF($ALL_TEST_ISSUES.count > 0 AND $TOTAL_ESTIMATE <= 8) →
+  ALL issues fit into ONE consolidated task
+  IF(NOT duplicate in $EXISTING_FIX_TASKS) →
+  mcp__vector-task__task_create('{title: "Test fix: $TASK_DESCRIPTION (test-validation)", content: "## Test Validation Fix Task\\\\n\\\\nTotal estimate: {$TOTAL_ESTIMATE}h\\\\n\\\\n## Missing Coverage ({$MISSING_COVERAGE.count})\\\\n{FOR each req: - {req.description} | Type: {req.expected_test_type} | Scenarios: {req.testable_scenarios}}\\\\n\\\\n## Failing Tests ({$FAILING_TESTS.count})\\\\n{FOR each test: - {test.test_file}:{test.test_method} | Error: {test.error_message}}\\\\n\\\\n## Bloated Tests ({$BLOATED_TESTS.count})\\\\n{FOR each test: - {test.test_file}:{test.test_method} | Bloat: {test.bloat_type} | Suggestion: {test.suggestion}}\\\\n\\\\n## Missing Workflows ({$MISSING_WORKFLOWS.count})\\\\n{FOR each wf: - {wf.workflow} | Missing: {wf.missing_scenarios}}\\\\n\\\\n## Isolation Issues ({$ISOLATION_ISSUES.count})\\\\n{FOR each test: - {test.test_file} | Issue: {test.isolation_issue}}\\\\n\\\\n## Context\\\\n- Memory IDs: {$TEST_MEMORY_CONTEXT.memory_ids}\\\\n- Documentation: {$DOCS_INDEX.paths}", priority: "high", estimate: {$TOTAL_ESTIMATE}, tags: ["validation-fix", "test", "manual-only"]}')
+  STORE-AS($CREATED_TASKS[] = {created task_id})
+  OUTPUT(Created consolidated test fix task #{task_id} ({$TOTAL_ESTIMATE}h))
 → END-IF
-- `6`: OUTPUT(Memory entries created: {$ALL_TEST_ISSUES.count > 0 ? 1 : 0})
+→ END-IF
+- `8`: IF($ALL_TEST_ISSUES.count > 0 AND $TOTAL_ESTIMATE > 8) →
+  Split into multiple 5-8h task batches
+  STORE-AS($NUM_BATCHES = {ceil($TOTAL_ESTIMATE / 6)})
+  Group issues by priority into batches of ~6h each
+  FOREACH(batch_index in range(1, $NUM_BATCHES)) →
+  STORE-AS($BATCH_ISSUES = {slice of issues for this batch, ~6h worth})
+  STORE-AS($BATCH_ESTIMATE = {sum of batch issue estimates})
+  IF(NOT duplicate in $EXISTING_FIX_TASKS) →
+  mcp__vector-task__task_create('{title: "Test fix batch {batch_index}/$NUM_BATCHES: $TASK_DESCRIPTION", content: "## Test Fix Batch {batch_index}\\\\n\\\\nBatch estimate: {$BATCH_ESTIMATE}h\\\\n\\\\n## Issues\\\\n{FOR each issue: - [{issue.type}] {issue.description}\\\\n  File: {issue.file}\\\\n  Suggestion: {issue.suggestion}}\\\\n\\\\n## Context\\\\n- Total batches: $NUM_BATCHES ($TOTAL_ESTIMATE h total)", priority: "high", estimate: {$BATCH_ESTIMATE}, order: {batch_index}, tags: ["validation-fix", "test", "manual-only"]}')
+  STORE-AS($CREATED_TASKS[] = {created task_id})
+  OUTPUT(Created batch {batch_index}/$NUM_BATCHES: {$BATCH_ESTIMATE}h)
+→ END-IF
+→ END-FOREACH
+→ END-IF
+- `9`: OUTPUT(Fix tasks created: {$CREATED_TASKS.count} (total estimate: {$TOTAL_ESTIMATE}h))
 
 # Phase8 completion
 GOAL(Complete test validation and store summary to memory)
@@ -173,10 +344,10 @@ GOAL(Complete test validation and store summary to memory)
 → ELSE →
   NEEDS_WORK
 → END-IF)
-- `5`: mcp__vector-memory__store_memory('{content: "Test validation of {$TASK_DESCRIPTION}\\\\n\\\\nStatus: {$VALIDATION_STATUS}\\\\nCoverage rate: {$COVERAGE_RATE}\\\\nTest health: {$TEST_HEALTH_SCORE}\\\\n\\\\nMissing coverage: {$MISSING_COVERAGE.count}\\\\nFailing tests: {$FAILING_TESTS.count}\\\\nBloated tests: {$BLOATED_TESTS.count}\\\\n\\\\nKey findings: {summary}", category: "code-solution", tags: ["test-validation", "audit", "do:test-validate"]}')
-- `6`: OUTPUT( === TEST VALIDATION REPORT === Target: {$TASK_DESCRIPTION} Status: {$VALIDATION_STATUS}  | Metric | Value | |--------|-------| | Requirements coverage | {$COVERAGE_RATE} | | Test health score | {$TEST_HEALTH_SCORE} | | Total tests | {$DISCOVERED_TESTS.count} | | Passing tests | {passing_count} | | Failing/flaky tests | {$FAILING_TESTS.count} |  | Issue Type | Count | |------------|-------| | Missing coverage | {$MISSING_COVERAGE.count} | | Partial coverage | {$PARTIAL_COVERAGE.count} | | Bloated tests | {$BLOATED_TESTS.count} | | Missing workflows | {$MISSING_WORKFLOWS.count} | | Isolation issues | {$ISOLATION_ISSUES.count} |  Test validation stored to vector memory.  Next steps: - Use /do:async to implement missing tests - Or create vector tasks with /task:create for systematic tracking)
+- `5`: mcp__vector-memory__store_memory('{content: "Test validation of {$TASK_DESCRIPTION}\\\\n\\\\nStatus: {$VALIDATION_STATUS}\\\\nCoverage rate: {$COVERAGE_RATE}\\\\nTest health: {$TEST_HEALTH_SCORE}\\\\n\\\\nMissing coverage: {$MISSING_COVERAGE.count}\\\\nFailing tests: {$FAILING_TESTS.count}\\\\nBloated tests: {$BLOATED_TESTS.count}\\\\nTasks created: {$CREATED_TASKS.count}\\\\n\\\\nKey findings: {summary}", category: "code-solution", tags: ["decision", "reusable"]}')
+- `6`: OUTPUT( === TEST VALIDATION REPORT === Target: {$TASK_DESCRIPTION} Status: {$VALIDATION_STATUS}  | Metric | Value | |--------|-------| | Requirements coverage | {$COVERAGE_RATE} | | Test health score | {$TEST_HEALTH_SCORE} | | Total tests | {$DISCOVERED_TESTS.count} | | Passing tests | {passing_count} | | Failing/flaky tests | {$FAILING_TESTS.count} |  | Issue Type | Count | |------------|-------| | Missing coverage | {$MISSING_COVERAGE.count} | | Partial coverage | {$PARTIAL_COVERAGE.count} | | Bloated tests | {$BLOATED_TESTS.count} | | Missing workflows | {$MISSING_WORKFLOWS.count} | | Isolation issues | {$ISOLATION_ISSUES.count} |  {IF $CREATED_TASKS.count > 0: "Created task IDs: {$CREATED_TASKS}"}  RESULT: {$VALIDATION_STATUS} — coverage={$COVERAGE_RATE}, health={$TEST_HEALTH_SCORE}, tasks_created={$CREATED_TASKS.count} NEXT: {IF $CREATED_TASKS.count > 0: "/task:async #{first_task_id} [-y]" ELSE: "No test issues found."})
 
-# Error handling
+# Error recovery
 Graceful error handling with recovery options
 - `1`: IF(user rejects plan) →
   Accept modifications
@@ -184,7 +355,7 @@ Graceful error handling with recovery options
   Re-submit for approval
 → END-IF
 - `2`: IF(task ID pattern detected) →
-  Report: "Detected vector task ID. Use /task:validate for vector tasks."
+  Report: "Detected vector task ID. Use /task:test-validate for vector tasks."
   Abort command
 → END-IF
 - `3`: IF(no agents available) →
@@ -193,35 +364,31 @@ Graceful error handling with recovery options
   Abort command
 → END-IF
 - `4`: IF(agent execution fails) →
-  Log: "Step/Agent {N} failed: {error}"
+  Log: "Test validation agent {N} failed: {error}"
   Offer options:
-    1. Retry current step
+    1. Retry current agent
     2. Skip and continue
-    3. Abort remaining steps
+    3. Abort remaining validation
   WAIT for user decision
 → END-IF
-- `5`: IF(documentation scan fails) →
-  Log: "brain docs command failed or no documentation found"
-  Proceed without documentation context
-  Note: "Documentation context unavailable"
-→ END-IF
-- `6`: IF(memory storage fails) →
-  Log: "Failed to store to memory: {error}"
-  Report findings in output instead
-  Continue with report
-→ END-IF
-
-# Error handling test specific
-Additional error handling for test validation
-- `1`: IF(no tests found) →
+- `5`: IF(no tests found) →
   Report: "No tests found for {$TASK_DESCRIPTION}"
   Store to memory: "Write initial tests for {$TASK_DESCRIPTION}"
   Continue with documentation requirements analysis
 → END-IF
-- `2`: IF(test execution fails) →
+- `6`: IF(test execution fails) →
   Log: "Test execution failed: {error}"
   Mark tests as "execution_unknown"
   Continue with static analysis
+→ END-IF
+- `7`: IF(documentation scan fails) →
+  Log: "brain docs command failed or no documentation found"
+  Proceed without documentation context
+→ END-IF
+- `8`: IF(memory storage fails) →
+  Log: "Failed to store to memory: {error}"
+  Report findings in output instead
+  Continue with report
 → END-IF
 
 # Test quality criteria
