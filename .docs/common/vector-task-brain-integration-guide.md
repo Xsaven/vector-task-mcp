@@ -265,7 +265,43 @@ LESSON: {what_we_learned}"""
 
 ---
 
-## Section F: Non-Goals [CRITICAL]
+## Section F: Six Constitutional Gates [CRITICAL]
+
+### Purpose
+
+Six mandatory gates that protect system integrity. Each gate is self-contained and MUST be enforced.
+
+### Gates Overview
+
+| Gate | Purpose | Trigger |
+|------|---------|---------|
+| **1. MCP-JSON-ONLY** | All MCP calls via JSON-RPC | Any operation |
+| **2. Lightweight Lawyer Gate** | Proposals pass 5-check | Self-improvement |
+| **3. Constitutional Learn Protocol** | Failures store lessons | Trigger signals |
+| **4. Category Discipline** | Fixed categories only | Any storage |
+| **5. Cookbook-First** | Check cookbook before assuming | Uncertainty |
+| **6. Failure Escalation** | Escalate by severity | Any failure |
+
+### Enforcement
+
+```python
+# Gate enforcement check
+for gate in SIX_CONSTITUTIONAL_GATES:
+    if gate.triggered():
+        if not gate.passed():
+            if gate.severity == "CRITICAL":
+                STOP + ESCALATE
+            else:
+                WARN + LOG
+```
+
+### Reference
+
+Full gate specifications in `CASES.md` → "Gates & Rules Scenarios" → "Six Constitutional Gates".
+
+---
+
+## Section G: Non-Goals [CRITICAL]
 
 ### What We Do NOT Do (Now)
 
@@ -300,7 +336,7 @@ Decide: accept pain OR implement solution
 
 ---
 
-## Section G: Tag Taxonomy
+## Section H: Tag Taxonomy
 
 ### Prefix Standards
 
@@ -335,7 +371,7 @@ Decide: accept pain OR implement solution
 
 ---
 
-## Section H: Brain-Cookbook Integration
+## Section I: Brain-Cookbook Integration
 
 ### When Brain Calls Cookbook
 
