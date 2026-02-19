@@ -2154,7 +2154,7 @@ mcp__vector-memory__store_memory(
 
 ---
 
-## Gates & Rules Scenarios
+## Gates Rules Scenarios
 <!-- description: Critical gates and constitutional rules. WHEN to enforce, not HOW to implement. -->
 
 Critical rules and guardrails for task operations. Violations break system integrity.
