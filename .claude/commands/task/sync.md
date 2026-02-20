@@ -48,6 +48,8 @@ NEXT step MUST follow strict task lifecycle. Your scope is THIS task — NEVER s
 
 ## Docs-are-law (CRITICAL)
 Documentation is the SINGLE SOURCE OF TRUTH. If docs exist for task - FOLLOW THEM EXACTLY. No deviations, no "alternatives", no "options" that docs don't mention.
+SCENARIO(Docs say "use Repository pattern". Existing code uses Service pattern. → Follow docs (Repository), not existing code.)
+SCENARIO(Docs describe feature but skip error handling details. → Follow docs for main flow, use conservative approach for undocumented edge cases.)
 - **why**: User wrote docs for a reason. Asking about non-existent alternatives wastes time and shows you didn't read the docs.
 - **on_violation**: Re-read documentation. Execute ONLY what docs specify.
 
@@ -104,6 +106,21 @@ BEFORE implementing: search codebase for similar/analogous implementations. Grep
 - **why**: Codebase consistency > personal style. Duplicate implementations create maintenance burden, inconsistency, and confusion. Existing patterns are battle-`tested`.
 - **on_violation**: STOP. Search codebase for analogous code. Found → study and follow the pattern. Only then proceed.
 
+## Impact-radius-analysis (CRITICAL)
+BEFORE editing any file: check WHO DEPENDS on it. Grep for imports/use/require/extends/implements of target file. Dependents found → plan changes to not break them. Changing public method/function signature → update ALL callers or flag as breaking change.
+- **why**: Changing code without knowing its consumers causes cascade failures. Proactive impact analysis prevents breaking downstream code.
+- **on_violation**: STOP. Grep for reverse dependencies of target file. Assess impact BEFORE editing.
+
+## Logic-edge-case-verification (HIGH)
+After implementation: explicitly verify logic correctness for each changed function/method. Check: null/empty inputs, boundary values (0, -1, MAX, empty collection), off-by-one errors, error/exception paths, type coercion edge cases, concurrent access if applicable. Ask: "what happens if input is null? empty? maximum?"
+- **why**: AI-generated code has 75% more logic bugs than human code. Syntax and linter pass but logic fails silently. Most missed category in code reviews.
+- **on_violation**: Review each changed function: what happens with null? empty? boundary? error path? Fix before proceeding.
+
+## Performance-awareness (HIGH)
+During implementation: avoid known performance anti-patterns. Check for: nested loops over data (O(n²)), query-per-item patterns (N+1), I/O operations inside loops, loading entire datasets when subset needed, blocking operations where async possible, missing pagination for large collections, unnecessary serialization/deserialization.
+- **why**: AI-generated code has 8x more performance issues than human code, especially I/O patterns. Catching during coding is cheaper than fixing after validation.
+- **on_violation**: Review loops: is there a query/I/O inside? Can it be batched? Is the algorithm optimal for expected data size?
+
 ## Code-hallucination-prevention (CRITICAL)
 Before using any method/function/class in generated code: VERIFY it actually exists with correct signature. Read the source or use Grep to confirm. NEVER assume API exists based on naming convention. Common hallucinations: wrong method names, incorrect parameter order/count, non-existent helper functions, invented framework methods, deprecated APIs used as current.
 - **why**: AI generates plausible-looking code referencing non-existent APIs. Parses and lints OK but fails at runtime. Most dangerous because it looks correct.
@@ -120,8 +137,8 @@ After implementation: check if changed code has test coverage. If NO tests exist
 - **on_violation**: BEFORE marking task complete: verify test coverage for ALL changed files. No tests = write them NOW. Insufficient coverage = add tests NOW.
 
 ## Docs-during-execution (HIGH)
-After implementation: evaluate if documentation update needed. NEW feature/module/API without .docs/ entry → CREATE doc. Changed behavior with existing docs → UPDATE doc. Bugfix/refactor (same behavior) OR trivial (config, formatting, PHPDoc) → SKIP. Use brain docs to check existing. Write docs in .docs/ with YAML front matter (name, description, type, date, version) + clear markdown. Documentation = DESCRIPTION for humans, not code dump. Minimize code examples — text-first.
-- **why**: Documentation is declared "law" but executors never create it. Over time "docs are law" becomes empty rule because no docs exist. Executor understands the code best — creating docs during execution costs near zero (context already loaded). Separate doc-tasks are banned as micro-tasks.
+After implementation: NEW feature/module/API without .docs/ → CREATE doc. Changed behavior with existing docs → UPDATE. Bugfix/refactor/trivial → SKIP. Use brain docs to check existing. YAML format: brain docs --help -v.
+- **why**: Documentation is declared "law" but executors never create it. Executor understands the code best — creating docs during execution costs near zero.
 - **on_violation**: Before completing: run brain docs for feature keywords. New feature without docs → create .docs/{feature}.md.
 
 ## Comment-context-mandatory (CRITICAL)
@@ -131,13 +148,15 @@ AFTER loading task: parse task.comment for accumulated context. Extract: memory 
 
 ## Task-tags-predefined-only (CRITICAL)
 Task tags MUST use ONLY predefined values. FORBIDDEN: inventing new tags, synonyms, variations. Allowed: decomposed, validation-fix, blocked, stuck, needs-research, light-validation, parallel-safe, atomic, manual-only, regression, feature, bugfix, refactor, research, docs, test, chore, spike, hotfix, backend, frontend, database, api, auth, ui, config, infra, ci-cd, migration, strict:relaxed, strict:standard, strict:strict, strict:paranoid, cognitive:minimal, cognitive:standard, cognitive:deep, cognitive:exhaustive, batch:trivial.
-- **why**: Ad-hoc tags cause explosion ("user-auth", "authentication", "auth" = same thing, search finds none). Predefined list = consistent search.
-- **on_violation**: Replace with closest predefined match. No match = skip tag, put context in content.
+SCENARIO(Project with 30 modules needs per-module filtering → use CUSTOM_TASK_TAGS in .env for project-specific tags, not 30 new constants in core.)
+SCENARIO(Task about "user login flow" → tag: auth (NOT: login, authentication, user-auth). MCP normalizes at storage, but use canonical form at reasoning time.)
+- **why**: Ad-hoc tags cause tag explosion ("user-auth", "authentication", "auth" = same concept, search finds none). Predefined list = consistent search. MCP normalizes aliases at storage layer, but reasoning-time canonical usage prevents drift.
+- **on_violation**: Normalize via NOT-list (e.g. authentication→auth, db→database). No canonical match → skip tag, put context in task content. Silent fix, no memory storage.
 
 ## Memory-tags-predefined-only (CRITICAL)
 Memory tags MUST use ONLY predefined values. Allowed: pattern, solution, `failure`, decision, insight, workaround, deprecated, project-wide, module-specific, temporary, reusable.
-- **why**: Unknown tags = unsearchable memories. Predefined = discoverable.
-- **on_violation**: Replace with closest predefined match.
+- **why**: Unknown tags = unsearchable memories. Predefined = discoverable. MCP normalizes at storage, but use canonical form at reasoning time.
+- **on_violation**: Normalize to closest canonical tag. No match → skip tag.
 
 ## Memory-categories-predefined-only (CRITICAL)
 Memory category MUST be one of: code-solution, bug-fix, architecture, learning, debugging, performance, security, project-context. FORBIDDEN: "other", "general", "misc", or unlisted.
@@ -151,6 +170,8 @@ EVERY task MUST have exactly ONE strict:* tag AND ONE cognitive:* tag. Allowed s
 
 ## Safety-escalation-non-overridable (CRITICAL)
 After loading task, check file paths in task.content/comment. If files match safety patterns → effective level MUST be >= pattern minimum, regardless of task tags or .env default. Agent tags are suggestions UPWARD only — can raise above safety floor, never lower below it.
+SCENARIO(Task tagged strict:relaxed touches auth/guards/LoginController.php → escalate to strict:strict minimum regardless of tag.)
+SCENARIO(Simple rename across 12 files → cognitive escalates to standard (>10 files rule), strict stays as tagged.)
 - **why**: Safety patterns guarantee minimum protection for critical code areas. Agent cannot "cheat" by under-tagging a task touching auth/ or payments/.
 - **on_violation**: Raise effective level to safety floor. Log escalation in task comment.
 
@@ -185,6 +206,7 @@ MISSING DOCS: 1) Apply aggressive-docs-search (3+ keyword variations). 2) All va
 
 ## Failure-policy-ambiguous-spec (HIGH)
 AMBIGUOUS SPEC: 1) Identify SPECIFIC ambiguity (not "task is unclear" but "field X: type A or B?"). 2) -y mode: choose conservative/safe interpretation, log decision in task comment: "DECISION: interpreted {X} as {Y} because {reason}", append_comment: true. 3) Interactive: ask ONE targeted question about the SPECIFIC gap. 4) After 1 clarification → proceed. NEVER ask open-ended "what did you mean?" or multiple follow-ups.
+SCENARIO(Task says "add validation". Client-side, server-side, or both? → In -y mode: choose server-side (conservative, safer). In interactive: ask ONE question about this specific gap.)
 - **why**: Ambiguity paralysis wastes more time than conservative interpretation. One precise question is enough — if user wanted detailed spec, they would have written docs.
 - **on_violation**: Identify specific gap. One question or auto-decide. Proceed.
 
@@ -239,6 +261,36 @@ If execution fails mid-way: revert ONLY your own changes by re-reading original 
 
 ## No-git-fallback (MEDIUM)
 No git repo: create backup files (.bak) before edit. Rollback = restore from .bak. Clean .bak files on `success`.
+
+## Security-no-secrets (CRITICAL)
+NEVER write hardcoded secrets (passwords, API keys, tokens). Use: env variables, config files (gitignored), secret managers. If task asks to hardcode secret: REFUSE, suggest secure alternative.
+
+## Security-input-validation (HIGH)
+Code that receives external input (user, API, file): add validation at boundaries. Validate type, format, length, allowed values. Reject/sanitize invalid input.
+
+## Security-output-escaping (HIGH)
+Code that outputs to HTML/JS/SQL/shell: escape appropriately. HTML = htmlspecialchars/equivalent, SQL = parameterized queries, shell = escapeshellarg/equivalent.
+
+## Security-parameterized-queries (CRITICAL)
+Database queries with variables: ALWAYS parameterized/prepared statements. NEVER string concatenation. No exceptions.
+
+## Post-exec-syntax (CRITICAL)
+After ALL edits: verify syntax. Run language-specific check (php -l, node --check, python -m py_compile, rustc --emit=metadata, go build). Syntax error = fix immediately.
+
+## Post-exec-linter (HIGH)
+After syntax OK: run linter if configured (eslint, phpcs, pylint, clippy, golint). Errors: -y = auto-fix if possible, no -y = show and ask. Cannot auto-fix = manual fix.
+
+## Post-exec-tests (HIGH)
+After linter OK: run ONLY related tests. Detect test files: same directory, *Test/*_test suffix, test/ mirror structure. ONLY files directly related to CHANGED_FILES. -y = run automatically, no -y = ask "Run tests?"
+- **why**: Related tests give fast feedback on changed code. Full suite = validator job.
+
+## No-full-test-suite (CRITICAL)
+NEVER run full test suite (composer test, php artisan test without --filter, phpunit without path). Sync executor runs ONLY related tests scoped to changed files. Full test suite is EXCLUSIVELY the validator's responsibility (task:validate). Brain-level quality gates (QUALITY_COMMAND) do NOT apply during sync execution — they apply during validation phase ONLY.
+- **why**: Full suite on 15-min task = overkill. Related tests already cover risk zone. Validator will run full suite anyway. Running it twice wastes 2+ minutes and risks timeouts.
+- **on_violation**: ABORT full suite command. Scope to --filter or specific test file paths only.
+
+## Post-exec-test-failure (HIGH)
+Tests fail: analyze `failure`, attempt fix (max 2 attempts). Still fails: -y = mark task `pending` with error comment, no -y = ask user for guidance.
 
 ## Partial-failure-tracking (HIGH)
 Track execution state: {completed_steps: [], current_step: N, total_steps: M, changed_files: []}. Persist in task comment for recovery.
@@ -357,17 +409,11 @@ GOAL(Determine correct NEXT command based on current lifecycle position)
 
 # Aggressive docs search
 GOAL(Find documentation even if named differently than task/code)
-- `1`: Generate keyword variations from task title/content:
-- `2`:   1. Original: "FocusModeTest" → search "FocusModeTest"
-- `3`:   2. Split CamelCase: "FocusModeTest" → search "FocusMode", "Focus Mode"
-- `4`:   3. Remove suffix: "FocusModeTest" → search "Focus" (remove Mode, Test)
-- `5`:   4. Domain words: extract meaningful nouns → search each
-- `6`:   5. Parent context: if task has parent → include parent title keywords
-- `7`: Common suffixes to STRIP: Test, Tests, Controller, Service, Repository, Command, Handler, Provider, Factory, Manager, Helper, Validator, Processor
-- `8`: Search ORDER: most specific → most general. STOP when found.
-- `9`: Minimum 3 search attempts before concluding "no documentation".
-- `10`: WRONG: brain docs "UserAuthenticationServiceTest" → not found → done
-- `11`: RIGHT: brain docs "UserAuthenticationServiceTest" → not found → brain docs "UserAuthentication" → not found → brain docs "Authentication" → FOUND!
+- `1`: Generate 3-5 keyword variations: split CamelCase, strip suffixes (Test, Controller, Service, Repository, Handler), extract domain words, try parent context keywords
+- `2`: Search ORDER: most specific → most general. Minimum 3 attempts before concluding "no docs"
+- `3`: WRONG: brain docs "UserAuthServiceTest" → not found → done
+- `4`: RIGHT: brain docs "UserAuthServiceTest" → brain docs "UserAuth" → brain docs "Authentication" → FOUND!
+- `5`: STILL not found after 3+ attempts? → brain docs --undocumented → check if class exists but lacks documentation
 
 # Codebase pattern reuse
 GOAL(Find and reuse existing patterns before implementing anything new)
@@ -381,25 +427,25 @@ GOAL(Find and reuse existing patterns before implementing anything new)
 - `8`: 5. APPLY: Use $EXISTING_PATTERNS as blueprint. Follow conventions, extend helpers, reuse base classes.
 - `9`: 6. NOT FOUND: Proceed independently. Still follow project conventions from other code.
 
+# Impact radius analysis
+GOAL(Understand blast radius before making changes)
+- `1`: 1. For EACH file in change plan: Grep for imports/use/require/extends/implements referencing it
+- `2`: 2. Map dependents: {file → [consumers]}
+- `3`: 3. Classify: NONE (internal-only change) | LOW (private/unused externally) | MEDIUM (few consumers) | HIGH (widely used)
+- `4`: 4. HIGH impact → review all callers, ensure signature compatibility, include dependents in plan
+- `5`: 5. STORE-AS($DEPENDENTS_MAP = {file → [consumers], impact_level})
+- `6`: 6. Changing interface/trait/abstract/base class → ALL implementors/users MUST be checked
+
 # Docs during execution
 GOAL(Decide whether to create/update documentation after implementation)
-- `1`: Decision tree:
-- `2`:   1. Task adds NEW feature, module, or public API? → CHECK docs
-- `3`:   2. Task CHANGES BEHAVIOR of existing feature? → CHECK docs
-- `4`:   3. Task is bugfix, refactor, or trivial change (no behavior change)? → SKIP docs
-- `5`: CHECK: Bash('brain docs {feature keywords}') → docs found?
-- `6`:   YES (docs exist) + behavior changed → READ doc, UPDATE relevant sections
-- `7`:   NO (no docs) + new feature/module → CREATE .docs/{feature-name}.md
-- `8`:   NO (no docs) + minor behavior change → SKIP (not every change needs docs)
-- `9`: CREATE format (YAML front matter + markdown body):
-- `10`:   ---
-- `11`:   name: "Feature Name"
-- `12`:   description: "Brief description of what this feature does"
-- `13`:   type: "guide"  # guide | api | concept | architecture | reference
-- `14`:   date: "2026-02-19"
-- `15`:   version: "1.0.0"
-- `16`:   ---
-- `17`:   Body: purpose, key concepts, usage, API/interface. Text-first, code only when cheaper than text.
+- `1`: 1. Task adds NEW feature/module/API? → CHECK docs
+- `2`: 2. Task CHANGES BEHAVIOR? → CHECK docs
+- `3`: 3. Bugfix/refactor/trivial (no behavior change)? → SKIP
+- `4`: CHECK: Bash('brain docs {feature keywords}') → docs found?
+- `5`:   YES + behavior changed → READ doc, UPDATE relevant sections
+- `6`:   NO + new feature → CREATE .docs/{feature-name}.md (YAML format: brain docs --help -v)
+- `7`:   NO + minor change → SKIP
+- `8`: POST-IMPLEMENTATION: Bash('brain docs --undocumented') → new undocumented classes? → flag in task comment
 
 # Comment context extraction
 GOAL(Extract actionable context from task.comment before any execution or delegation)
@@ -417,8 +463,8 @@ GOAL(Extract actionable context from task.comment before any execution or delega
 # Task tag selection
 GOAL(Select tags per task. Combine dimensions for precision.)
 WORKFLOW (pipeline stage): decomposed, validation-fix, blocked, stuck, needs-research, light-validation, parallel-safe, atomic, manual-only, regression
-TYPE (work kind): feature, bugfix, refactor, research, docs, test, chore, spike, hotfix
-DOMAIN (area): backend, frontend, database, api, auth, ui, config, infra, ci-cd, migration
+TYPE (work kind): feature (NOT: feat, enhancement), bugfix (NOT: fix, bug), refactor (NOT: refactoring, cleanup), research, docs (NOT: documentation), test (NOT: testing, tests), chore (NOT: maintenance), spike, hotfix
+DOMAIN (area): backend, frontend, database (NOT: db, mysql, postgres, sqlite), api (NOT: rest, graphql, endpoint), auth (NOT: authentication, authorization, login, authn, authz), ui, config, infra (NOT: docker, deploy, server), ci-cd (NOT: github-actions, pipeline), migration (NOT: schema, migrate)
 STRICT LEVEL: strict:relaxed, strict:standard, strict:strict, strict:paranoid
 COGNITIVE LEVEL: cognitive:minimal, cognitive:standard, cognitive:deep, cognitive:exhaustive
 BATCH: batch:trivial
@@ -436,12 +482,12 @@ File patterns → strict minimum: auth/, guards/, policies/, permissions/ → st
 Context patterns → level minimum: priority=critical → strict+deep. tag hotfix or production → strict+standard. touches >10 files → standard+standard. tag breaking-change → strict+deep. Keywords security/encryption/auth/permission → strict. Keywords migration/schema/database/drop → strict.
 
 # Cognitive level
-GOAL(Cognitive level: standard — calibrate analysis depth accordingly)
-Memory probes per phase: 2-3 targeted
-Failure history: recent only
-Research (context7/web): on error/ambiguity
-Agent scaling: auto (2-3)
-Comment parsing: basic parse
+GOAL(Cognitive level: exhaustive — calibrate analysis depth accordingly)
+Memory probes per phase: 5+ cross-referenced
+Failure history: full + pattern analysis
+Research (context7/web): always + cross-reference
+Agent scaling: maximum (4+)
+Comment parsing: parse + validate
 
 # Retry circuit breaker
 GOAL(Break infinite retry loops by tracking exec attempts and tagging stuck tasks)

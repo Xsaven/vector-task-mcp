@@ -72,6 +72,8 @@ When workflow delegates to validation/execution agents via Task(), Brain MUST NO
 
 ## Docs-are-law (CRITICAL)
 Documentation is the SINGLE SOURCE OF TRUTH. If docs exist for task - FOLLOW THEM EXACTLY. No deviations, no "alternatives", no "options" that docs don't mention.
+SCENARIO(Docs say "use Repository pattern". Existing code uses Service pattern. → Follow docs (Repository), not existing code.)
+SCENARIO(Docs describe feature but skip error handling details. → Follow docs for main flow, use conservative approach for undocumented edge cases.)
 - **why**: User wrote docs for a reason. Asking about non-existent alternatives wastes time and shows you didn't read the docs.
 - **on_violation**: Re-read documentation. Execute ONLY what docs specify.
 
@@ -128,6 +130,16 @@ BEFORE implementing: search codebase for similar/analogous implementations. Grep
 - **why**: Codebase consistency > personal style. Duplicate implementations create maintenance burden, inconsistency, and confusion. Existing patterns are battle-`tested`.
 - **on_violation**: STOP. Search codebase for analogous code. Found → study and follow the pattern. Only then proceed.
 
+## Impact-radius-analysis (CRITICAL)
+BEFORE editing any file: check WHO DEPENDS on it. Grep for imports/use/require/extends/implements of target file. Dependents found → plan changes to not break them. Changing public method/function signature → update ALL callers or flag as breaking change.
+- **why**: Changing code without knowing its consumers causes cascade failures. Proactive impact analysis prevents breaking downstream code.
+- **on_violation**: STOP. Grep for reverse dependencies of target file. Assess impact BEFORE editing.
+
+## Logic-edge-case-verification (HIGH)
+After implementation: explicitly verify logic correctness for each changed function/method. Check: null/empty inputs, boundary values (0, -1, MAX, empty collection), off-by-one errors, error/exception paths, type coercion edge cases, concurrent access if applicable. Ask: "what happens if input is null? empty? maximum?"
+- **why**: AI-generated code has 75% more logic bugs than human code. Syntax and linter pass but logic fails silently. Most missed category in code reviews.
+- **on_violation**: Review each changed function: what happens with null? empty? boundary? error path? Fix before proceeding.
+
 ## Code-hallucination-prevention (CRITICAL)
 Before using any method/function/class in generated code: VERIFY it actually exists with correct signature. Read the source or use Grep to confirm. NEVER assume API exists based on naming convention. Common hallucinations: wrong method names, incorrect parameter order/count, non-existent helper functions, invented framework methods, deprecated APIs used as current.
 - **why**: AI generates plausible-looking code referencing non-existent APIs. Parses and lints OK but fails at runtime. Most dangerous because it looks correct.
@@ -150,13 +162,15 @@ AFTER loading task: parse task.comment for accumulated context. Extract: memory 
 
 ## Task-tags-predefined-only (CRITICAL)
 Task tags MUST use ONLY predefined values. FORBIDDEN: inventing new tags, synonyms, variations. Allowed: decomposed, validation-fix, blocked, stuck, needs-research, light-validation, parallel-safe, atomic, manual-only, regression, feature, bugfix, refactor, research, docs, test, chore, spike, hotfix, backend, frontend, database, api, auth, ui, config, infra, ci-cd, migration, strict:relaxed, strict:standard, strict:strict, strict:paranoid, cognitive:minimal, cognitive:standard, cognitive:deep, cognitive:exhaustive, batch:trivial.
-- **why**: Ad-hoc tags cause explosion ("user-auth", "authentication", "auth" = same thing, search finds none). Predefined list = consistent search.
-- **on_violation**: Replace with closest predefined match. No match = skip tag, put context in content.
+SCENARIO(Project with 30 modules needs per-module filtering → use CUSTOM_TASK_TAGS in .env for project-specific tags, not 30 new constants in core.)
+SCENARIO(Task about "user login flow" → tag: auth (NOT: login, authentication, user-auth). MCP normalizes at storage, but use canonical form at reasoning time.)
+- **why**: Ad-hoc tags cause tag explosion ("user-auth", "authentication", "auth" = same concept, search finds none). Predefined list = consistent search. MCP normalizes aliases at storage layer, but reasoning-time canonical usage prevents drift.
+- **on_violation**: Normalize via NOT-list (e.g. authentication→auth, db→database). No canonical match → skip tag, put context in task content. Silent fix, no memory storage.
 
 ## Memory-tags-predefined-only (CRITICAL)
 Memory tags MUST use ONLY predefined values. Allowed: pattern, solution, `failure`, decision, insight, workaround, deprecated, project-wide, module-specific, temporary, reusable.
-- **why**: Unknown tags = unsearchable memories. Predefined = discoverable.
-- **on_violation**: Replace with closest predefined match.
+- **why**: Unknown tags = unsearchable memories. Predefined = discoverable. MCP normalizes at storage, but use canonical form at reasoning time.
+- **on_violation**: Normalize to closest canonical tag. No match → skip tag.
 
 ## Memory-categories-predefined-only (CRITICAL)
 Memory category MUST be one of: code-solution, bug-fix, architecture, learning, debugging, performance, security, project-context. FORBIDDEN: "other", "general", "misc", or unlisted.
@@ -170,6 +184,8 @@ EVERY task MUST have exactly ONE strict:* tag AND ONE cognitive:* tag. Allowed s
 
 ## Safety-escalation-non-overridable (CRITICAL)
 After loading task, check file paths in task.content/comment. If files match safety patterns → effective level MUST be >= pattern minimum, regardless of task tags or .env default. Agent tags are suggestions UPWARD only — can raise above safety floor, never lower below it.
+SCENARIO(Task tagged strict:relaxed touches auth/guards/LoginController.php → escalate to strict:strict minimum regardless of tag.)
+SCENARIO(Simple rename across 12 files → cognitive escalates to standard (>10 files rule), strict stays as tagged.)
 - **why**: Safety patterns guarantee minimum protection for critical code areas. Agent cannot "cheat" by under-tagging a task touching auth/ or payments/.
 - **on_violation**: Raise effective level to safety floor. Log escalation in task comment.
 
@@ -250,6 +266,16 @@ BEFORE starting work: fetch sibling tasks (same parent_id, status=`completed`/`s
 - **why**: Previous attempts on same problem contain valuable "what not to do" information.
 - **on_violation**: task_list with parent_id, extract `failure` patterns from comments.
 
+## Stuck-pattern-detection (HIGH)
+Before creating fix-tasks: analyze FAILURE_PATTERNS + SIBLING_MEMORIES + KNOWN_FAILURES for circular patterns. STUCK PATTERN = same problem zone (file path + issue category) failed 2+ times across validation cycles or sibling task attempts. Indicators: same file in multiple sibling failures, same error category repeated, same fix approach suggested and failed. When stuck pattern detected → ESCALATION REQUIRED before creating fix-task.
+- **why**: Without pattern detection, validator creates the same fix-task with the same approach that already failed. Agent executes, fails, validator creates again → infinite loop. Circuit breaker catches after 3 wasted cycles. Early detection + research saves 2 cycles.
+- **on_violation**: Analyze `failure` history BEFORE task_create. Stuck pattern found → research escalation. Never create fix-task with known-failed approach.
+
+## Stuck-research-escalation (HIGH)
+When stuck pattern detected: 1) Collect all failed approaches for the stuck zone from memory + sibling comments. 2) Research alternative solutions — async validator: launch research agent; sync validator: inline context7 + web search. 3) Inject findings into fix-task content: "STUCK ZONE: {file}:{issue}. Failed approaches: {list}. Research: {alternatives}. Recommended: {best_untried}." 4) Auto-approve mode: auto-select highest-confidence untried approach. 5) NO alternative found → ESCALATE to human via task comment, do NOT create doomed fix-task.
+- **why**: Research costs ~30s but prevents 2+ wasted cycles (each = agent execution + validation = minutes + tokens). Research once > fail three times.
+- **on_violation**: Stuck pattern without research = BLOCK fix-task creation. Research first, create with alternative.
+
 ## Failure-policy-tool-error (CRITICAL)
 TOOL ERROR / MCP FAILURE: 1) Retry ONCE with same parameters. 2) Still fails → STOP current step. 3) Store `failure` to memory (category: "debugging", tags: ["failure"]). 4) Update task comment: "BLOCKED: {tool} failed after retry. Error: {msg}", append_comment: true. 5) -y mode: set status "pending" (return to queue for retry), abort current workflow. Interactive: ask user "Tool failed. Retry/Skip/Abort?". NEVER set "stopped" on `failure` — "stopped" = permanently cancelled.
 - **why**: Consistent tool `failure` handling across all commands. One retry catches transient issues. Failed task returns to `pending` queue — it is NOT cancelled, just needs another attempt or manual intervention.
@@ -262,6 +288,7 @@ MISSING DOCS: 1) Apply aggressive-docs-search (3+ keyword variations). 2) All va
 
 ## Failure-policy-ambiguous-spec (HIGH)
 AMBIGUOUS SPEC: 1) Identify SPECIFIC ambiguity (not "task is unclear" but "field X: type A or B?"). 2) -y mode: choose conservative/safe interpretation, log decision in task comment: "DECISION: interpreted {X} as {Y} because {reason}", append_comment: true. 3) Interactive: ask ONE targeted question about the SPECIFIC gap. 4) After 1 clarification → proceed. NEVER ask open-ended "what did you mean?" or multiple follow-ups.
+SCENARIO(Task says "add validation". Client-side, server-side, or both? → In -y mode: choose server-side (conservative, safer). In interactive: ask ONE question about this specific gap.)
 - **why**: Ambiguity paralysis wastes more time than conservative interpretation. One precise question is enough — if user wanted detailed spec, they would have written docs.
 - **on_violation**: Identify specific gap. One question or auto-decide. Proceed.
 
@@ -269,6 +296,50 @@ AMBIGUOUS SPEC: 1) Identify SPECIFIC ambiguity (not "task is unclear" but "field
 MAX 3 validate attempts per task. Parse task.comment for "ATTEMPT [validate]:" markers at workflow start (count only markers AFTER last "CIRCUIT BREAKER:" entry — counter auto-resets when human removes "stuck" tag and retries). If task has tag "stuck" → ABORT immediately (needs human). If validate attempt count >= 3 → add tag "stuck", store `failure` summary to memory, ABORT. If count < 3 → proceed, include "ATTEMPT [validate]: {N+1}/3" in task.comment when setting `in_progress`.
 - **why**: Without retry limit, auto-approve creates infinite loops: fail → `pending` → retry → fail. "stopped" = permanently cancelled (wrong semantics). Tag "stuck" = circuit breaker: visible via task:list, removable by human to retry. Counter per phase (exec/validate) prevents false positives from normal lifecycle.
 - **on_violation**: Check validate attempt counter BEFORE setting `in_progress`. Tag "stuck" = HARD STOP.
+
+## Collateral-failure-detection (HIGH)
+After test execution: separate failing tests into SCOPE (tests for files/modules in task.content or changed by this task) and COLLATERAL (tests for code clearly unrelated to task). Ambiguous = treat as SCOPE (conservative). If COLLATERAL failures exist AND task has ZERO in-scope failures → create max 2 GLOBAL remediation tasks with tag "regression" and NO parent_id (EXEMPT from parent-id-mandatory — intentional to prevent cascade re-validations). Current task PASSES quality gates. If task has in-scope failures → fail normally, mention collateral in report but do NOT create remediation tasks (fix own issues first). NOTE: practically triggers only on ROOT task validation (full test suite). Subtasks run scoped tests → no collateral possible.
+- **why**: Ignoring unrelated test failures = hidden regressions accumulate silently. Blocking current task on others' failures = wrong task punished. Global tasks (no parent) enter normal queue without parent-status propagation → zero cascade re-validations. Max 2 per validation prevents spam. If task turns out unnecessary (already fixed), agent executes it, tests pass, done in one cycle — cheaper than missed regression.
+- **on_violation**: Classify test failures by scope. In-scope = current task problem. Out-of-scope = collateral → global task. Never block validation on collateral failures.
+
+## Security-injection (CRITICAL)
+Injection vulnerabilities = fix-task.
+
+## Security-xss (CRITICAL)
+XSS vulnerabilities = fix-task.
+
+## Security-secrets (CRITICAL)
+Hardcoded secrets = fix-task.
+
+## Security-auth (HIGH)
+Auth/authz issues = fix-task.
+
+## Security-sensitive-data (HIGH)
+Sensitive data exposure = fix-task.
+
+## Performance-n-plus-one (HIGH)
+N+1 query pattern = fix-task.
+
+## Performance-complexity (MEDIUM)
+Algorithmic complexity issues = fix-task.
+
+## Performance-memory (MEDIUM)
+Memory issues = fix-task.
+
+## Type-safety (HIGH)
+Type safety violations = fix-task.
+
+## Dependency-audit (HIGH)
+Dependency vulnerabilities = fix-task.
+
+## Dependency-license (MEDIUM)
+License compatibility issues = fix-task.
+
+## Test-quality-assertions (HIGH)
+Tests without meaningful assertions = fix-task.
+
+## Test-quality-edge-cases (HIGH)
+Missing edge case tests = fix-task.
 
 ## Issue-deduplication (HIGH)
 Before creating fix-task: deduplicate issues. Same file + same issue type from different agents = ONE fix-task. Merge descriptions. Avoid duplicate work.
@@ -325,9 +396,23 @@ parallel: true does NOT mean siblings are running RIGHT NOW. It means they CAN r
 - **why**: Without status interpretation, agents overreact: restrict themselves for `pending` tasks that haven't started, fear `completed` tasks that are done, panic when `in_progress` siblings lack memory scope. Causes unnecessary self-limitation and blocked work.
 - **on_violation**: Check sibling STATUS before reacting. Only `in_progress` + registered scope = actionable conflict data. Everything else = awareness only, not restriction.
 
+## Validator-parallel-cosmetic-defer (HIGH)
+In PARALLEL CONTEXT: before making inline cosmetic fix, check if file is in ACTIVE sibling's scope (from $SIBLING_SCOPES). File in `active` sibling scope → DO NOT fix, record in task comment: "DEFERRED COSMETIC: {file}:{line} — {issue}. Reason: file in `active` sibling #{id} scope." File NOT in any `active` scope → safe to fix inline. This applies to ALL inline fixes: whitespace, formatting, typos, import sorting, comment cleanup.
+- **why**: Validator cosmetic fixes (Edit) on files being actively modified by a parallel executor = race condition. Even a whitespace fix overwrites the executor's in-memory file content, creating silent data loss or merge conflicts.
+- **on_violation**: Check $SIBLING_SCOPES before Edit. Active sibling owns file → defer cosmetic fix to task comment. Fix will be picked up by next validation pass after sibling completes.
+
+## Scoped-git-checkpoint (CRITICAL)
+Git checkpoint commits scope depends on context: 1) PARALLEL CONTEXT: "git add {task_file1} {task_file2}" — commit ONLY task-scope files. memory/ excluded implicitly (not in task files). Prevents staging other agents' uncommitted work and SQLite binary conflicts. 2) NON-PARALLEL context: "git add -A" — full state checkpoint, INCLUDES memory/ for complete project state preservation. 3) If commit fails (pre-commit hook) → LOG and continue, work is still valid.
+- **why**: In parallel context, multiple agents write to memory/ SQLite and codebase concurrently. "git add -A" stages everything: other agents' half-done work + binary SQLite mid-write = corrupted checkpoint. In non-parallel, "git add -A" is safe and DESIRED — memory/ commit preserves knowledge base alongside code for full revert capability.
+- **on_violation**: Parallel: "git add {specific_files}" (task scope only). Non-parallel: "git add -A" (full checkpoint with memory/).
+
 ## Cosmetic-atomic (MEDIUM)
 Cosmetic fixes by agents MUST be atomic with validation. If validation creates fix-task (functional issues found), cosmetic changes STILL committed. Cosmetic improvements are always safe to keep.
 - **why**: Cosmetic fixes are non-breaking. Discarding them wastes work.
+
+## Light-validation-tag (MEDIUM)
+Task with "light validation" tag = SKIP heavy checks (quality gates, full test suite, code quality agents). RUN only: syntax check, file exists, basic format validation.
+- **why**: Trivial tasks (docs, typos, comments, config values, formatting) do not need full validation. Explicit tag = conscious decision by task creator.
 
 
 # Guaranteed finalization check
@@ -366,17 +451,11 @@ GOAL(Determine correct NEXT command based on current lifecycle position)
 
 # Aggressive docs search
 GOAL(Find documentation even if named differently than task/code)
-- `1`: Generate keyword variations from task title/content:
-- `2`:   1. Original: "FocusModeTest" → search "FocusModeTest"
-- `3`:   2. Split CamelCase: "FocusModeTest" → search "FocusMode", "Focus Mode"
-- `4`:   3. Remove suffix: "FocusModeTest" → search "Focus" (remove Mode, Test)
-- `5`:   4. Domain words: extract meaningful nouns → search each
-- `6`:   5. Parent context: if task has parent → include parent title keywords
-- `7`: Common suffixes to STRIP: Test, Tests, Controller, Service, Repository, Command, Handler, Provider, Factory, Manager, Helper, Validator, Processor
-- `8`: Search ORDER: most specific → most general. STOP when found.
-- `9`: Minimum 3 search attempts before concluding "no documentation".
-- `10`: WRONG: brain docs "UserAuthenticationServiceTest" → not found → done
-- `11`: RIGHT: brain docs "UserAuthenticationServiceTest" → not found → brain docs "UserAuthentication" → not found → brain docs "Authentication" → FOUND!
+- `1`: Generate 3-5 keyword variations: split CamelCase, strip suffixes (Test, Controller, Service, Repository, Handler), extract domain words, try parent context keywords
+- `2`: Search ORDER: most specific → most general. Minimum 3 attempts before concluding "no docs"
+- `3`: WRONG: brain docs "UserAuthServiceTest" → not found → done
+- `4`: RIGHT: brain docs "UserAuthServiceTest" → brain docs "UserAuth" → brain docs "Authentication" → FOUND!
+- `5`: STILL not found after 3+ attempts? → brain docs --undocumented → check if class exists but lacks documentation
 
 # Comment context extraction
 GOAL(Extract actionable context from task.comment before any execution or delegation)
@@ -394,8 +473,8 @@ GOAL(Extract actionable context from task.comment before any execution or delega
 # Task tag selection
 GOAL(Select tags per task. Combine dimensions for precision.)
 WORKFLOW (pipeline stage): decomposed, validation-fix, blocked, stuck, needs-research, light-validation, parallel-safe, atomic, manual-only, regression
-TYPE (work kind): feature, bugfix, refactor, research, docs, test, chore, spike, hotfix
-DOMAIN (area): backend, frontend, database, api, auth, ui, config, infra, ci-cd, migration
+TYPE (work kind): feature (NOT: feat, enhancement), bugfix (NOT: fix, bug), refactor (NOT: refactoring, cleanup), research, docs (NOT: documentation), test (NOT: testing, tests), chore (NOT: maintenance), spike, hotfix
+DOMAIN (area): backend, frontend, database (NOT: db, mysql, postgres, sqlite), api (NOT: rest, graphql, endpoint), auth (NOT: authentication, authorization, login, authn, authz), ui, config, infra (NOT: docker, deploy, server), ci-cd (NOT: github-actions, pipeline), migration (NOT: schema, migrate)
 STRICT LEVEL: strict:relaxed, strict:standard, strict:strict, strict:paranoid
 COGNITIVE LEVEL: cognitive:minimal, cognitive:standard, cognitive:deep, cognitive:exhaustive
 BATCH: batch:trivial
@@ -413,12 +492,12 @@ File patterns → strict minimum: auth/, guards/, policies/, permissions/ → st
 Context patterns → level minimum: priority=critical → strict+deep. tag hotfix or production → strict+standard. touches >10 files → standard+standard. tag breaking-change → strict+deep. Keywords security/encryption/auth/permission → strict. Keywords migration/schema/database/drop → strict.
 
 # Cognitive level
-GOAL(Cognitive level: standard — calibrate analysis depth accordingly)
-Memory probes per phase: 2-3 targeted
-Failure history: recent only
-Research (context7/web): on error/ambiguity
-Agent scaling: auto (2-3)
-Comment parsing: basic parse
+GOAL(Cognitive level: exhaustive — calibrate analysis depth accordingly)
+Memory probes per phase: 5+ cross-referenced
+Failure history: full + pattern analysis
+Research (context7/web): always + cross-reference
+Agent scaling: maximum (4+)
+Comment parsing: parse + validate
 
 # Retry circuit breaker
 GOAL(Break infinite retry loops by tracking validate attempts and tagging stuck tasks)
@@ -434,6 +513,49 @@ GOAL(Break infinite retry loops by tracking validate attempts and tagging stuck 
 - `4`: 4. IF(STORE-GET($ATTEMPT_COUNT) < 3) →
   Proceed. Include "ATTEMPT [validate]: {N+1}/3" when setting `in_progress`.
 → END-IF
+
+# Collateral failure detection
+GOAL(Detect unrelated test failures and create global remediation tasks without blocking current validation)
+- `1`: 1. After test execution: classify each failing test
+- `2`:    SCOPE: test file directly tests classes/modules changed by or mentioned in $TASK
+- `3`:    COLLATERAL: test file tests code clearly unrelated (different module, domain, component)
+- `4`:    AMBIGUOUS: cannot determine origin → treat as SCOPE (conservative, safe)
+- `5`: 2. IF(STORE-GET($COLLATERAL_FAILURES) not empty AND STORE-GET($ISSUES) = 0 (no in-scope failures)) →
+  Group collateral failures by module/area (max 2 groups)
+  FOREACH(group in collateral_groups (max 2)) →
+  mcp__vector-task__task_create('{title: "Fix regression: {module/area}", content: "Test `failure`(s) detected during validation of task #{$TASK.id} (\\'{$TASK.title}\\').\\\\n\\\\nThese failures are OUTSIDE that task\\'s scope — collateral/regression.\\\\n\\\\nFailing tests:\\\\n- {test_names_with_errors}\\\\n\\\\nError summary:\\\\n{error_details}\\\\n\\\\nDiscovered by: validator during task #{$TASK.id} validation.\\\\nNOT caused by task #{$TASK.id}.", priority: "high", estimate: 2, tags: ["regression", "bugfix"]}') ← NO parent_id (global task, exempt from parent-id-mandatory)
+→ END-FOREACH
+  Current task: PASSES quality gates (collateral failures are NOT blockers)
+→ END-IF
+- `6`: 3. IF(STORE-GET($COLLATERAL_FAILURES) not empty AND STORE-GET($ISSUES) > 0) →
+  Current task FAILS normally (in-scope issues take priority)
+  Mention collateral failures in validation report for awareness
+  Do NOT create remediation tasks — fix own issues first, collateral caught on re-validation
+→ END-IF
+- `7`: 4. IF(no COLLATERAL failures) →
+  Normal validation flow — no additional action
+→ END-IF
+
+# Light validation examples
+Recognize tags that signal trivial/light validation. Match by INTENT, not exact string.
+- light-validation, light, trivial, minor, docs-only, documentation, readme, typo, cosmetic, formatting, config-only, skip-tests, no-validation
+
+# Light validation scope
+Light validation appropriate for:
+- Documentation changes (README, CHANGELOG, comments, docblocks)
+- Typo fixes in text/UI/messages
+- Config value changes (not logic)
+- Code formatting, import sorting
+- Removing dead/unused code
+- Adding/updating .gitignore, .editorconfig
+
+# Light validation not for
+NEVER light validation for:
+- Any logic changes (even "simple" ones)
+- API/interface changes
+- Database migrations
+- Security-related code
+- New features or bug fixes
 
 # Input
 STORE-AS($RAW_INPUT = $ARGUMENTS)

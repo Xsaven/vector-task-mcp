@@ -2153,6 +2153,96 @@ mcp__vector-memory__store_memory(
 ```
 
 ---
+---
+
+## Workflow Scenarios
+<!-- description: Multi-step MCP operation sequences with verification. Create-then-validate, update-then-confirm patterns. -->
+
+### Create-Then-Validate
+
+After task_create, immediately task_get to confirm fields persisted correctly. Prevents phantom tasks.
+
+**Priority:** HIGH
+
+```python
+# Step 1: Create the task
+result = mcp__vector-task__task_create({
+    "title": "Add rate limiting to API endpoints",
+    "description": "Implement rate limiting middleware for all /api/* routes. Apply to controllers in app/Http/Controllers/Api/.",
+    "tags": ["feature", "api", "strict:standard"],
+    "estimate": 3.0,
+    "priority": "high"
+})
+
+# Step 2: Validate by fetching the created task
+task = mcp__vector-task__task_get({
+    "task_id": result["task_id"]
+})
+
+# Step 3: Confirm fields
+# task.title == "Add rate limiting to API endpoints" → title persisted
+# task.status == "pending" → correct initial status
+# "feature" in task.tags → tags persisted
+# task.estimate == 3.0 → estimate persisted
+# If task_get returns error → creation failed silently
+# If fields mismatch → data integrity issue
+```
+
+**When to use:**
+- After creating tasks with complex tag sets
+- After creating subtasks in a hierarchy (verify parent_id linkage)
+- When task_create returns success but downstream operations depend on the task existing
+- Before starting delegation that references the created task_id
+
+**Iron rule alignment:**
+- `explore-before-execute` (CRITICAL): mandates exploring context before execution
+- This pattern extends it: execute-then-verify for write operations
+- Combined flow: explore (context check) → create → validate (get + confirm)
+
+**Governance:** Uses compile-time preset. No additional cookbook pulls needed.
+
+---
+
+### Create-Subtask-Then-Validate-Hierarchy
+
+For hierarchical tasks: create subtask, verify parent linkage.
+
+```python
+# Step 1: Verify parent exists and is accessible
+parent = mcp__vector-task__task_get({
+    "task_id": "parent-42"
+})
+# Confirm: parent exists, parent.status allows subtask creation
+
+# Step 2: Create subtask
+result = mcp__vector-task__task_create({
+    "title": "Implement rate limiter middleware class",
+    "description": "Create RateLimiterMiddleware in app/Http/Middleware/",
+    "tags": ["feature", "api"],
+    "estimate": 1.5,
+    "parent_id": "parent-42"
+})
+
+# Step 3: Validate subtask + hierarchy
+subtask = mcp__vector-task__task_get({
+    "task_id": result["task_id"]
+})
+# Confirm: subtask.parent_id == "parent-42"
+# Confirm: subtask.status == "pending"
+
+# Step 4: Verify parent sees child (optional)
+parent_refreshed = mcp__vector-task__task_get({
+    "task_id": "parent-42"
+})
+# Confirm: result["task_id"] in parent_refreshed.children
+```
+
+**Iron rule alignment:**
+- `parent-readonly` (CRITICAL): parent task is READ-ONLY, never update parent status manually
+- Status propagation is AUTOMATIC: child→pending implies parent→pending
+
+---
+---
 
 ## Gates Rules Scenarios
 <!-- description: Critical gates and constitutional rules. WHEN to enforce, not HOW to implement. -->
