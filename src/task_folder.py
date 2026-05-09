@@ -255,6 +255,58 @@ class TaskFolderManager:
             logger.warning("rename_on_done failed for code=%r", code, exc_info=True)
             return False
 
+    def sync_folder_position(self, code: str, target_position: str) -> bool:
+        """Move the existing folder for ``code`` to ``target_position``.
+
+        ``target_position`` is one of ``"active"``, ``"on-review"``, ``"archive"``.
+        No-op (returns True) if the folder is already at the correct position
+        or if no folder exists at any position. Returns False on target
+        collision or unexpected error.
+
+        Used by the shared-code aggregate logic: when multiple root tasks
+        share a code, the folder must reflect the LEAST advanced status
+        among them (active > on-review > archive). Moving the folder up or
+        down the lifecycle ladder is a single atomic rename — Archive/{code}
+        ↔ {code}-on-review ↔ {code}.
+        """
+        try:
+            current = self._resolve_existing_folder(code)
+            if current is None:
+                return True  # no folder to reposition
+
+            if target_position == "active":
+                target = self.root / code
+            elif target_position == "on-review":
+                target = self.root / f"{code}-on-review"
+            elif target_position == "archive":
+                target = self.root / "Archive" / code
+            else:
+                logger.warning(
+                    "sync_folder_position: unknown target=%r for code=%r",
+                    target_position, code,
+                )
+                return False
+
+            if current == target:
+                return True
+
+            if target.exists():
+                logger.warning(
+                    "sync_folder_position: target %s already exists; aborting",
+                    target,
+                )
+                return False
+
+            target.parent.mkdir(parents=True, exist_ok=True)
+            current.rename(target)
+            return True
+        except Exception:
+            logger.warning(
+                "sync_folder_position failed for code=%r target=%r",
+                code, target_position, exc_info=True,
+            )
+            return False
+
     def rename_code(self, old_code: str, new_code: str) -> bool:
         """Rename the on-disk folder for a code change.
 

@@ -733,12 +733,20 @@ class TaskStore:
             # FS side-effect: create per-task folder for ROOT tasks only.
             # ensure_folder_for_status adopts existing folders at any
             # lifecycle position (handles orphaned folders from a prior
-            # session) — never creates a duplicate empty {code}/.
+            # session) — never creates a duplicate empty {code}/. Then
+            # _sync_code_folder_position re-positions per the aggregate
+            # rule across all root tasks sharing this code (e.g. an
+            # archived folder gets pulled back to active when a new
+            # pending task joins the code).
             if self.folder_mgr is not None and validated_parent_id is None:
                 try:
                     self.folder_mgr.ensure_folder_for_status(
                         final_code, title, task_id, TaskStatus.PENDING.value
                     )
+                    # Reopen connection because ensure_folder_for_status
+                    # doesn't need DB; reuse the still-open `conn` already
+                    # in scope here for the aggregate query.
+                    self._sync_code_folder_position(conn, final_code)
                 except Exception as e:
                     logger.warning(
                         "Folder creation failed for task %s (%r): %s",
@@ -1294,28 +1302,20 @@ class TaskStore:
             #   any other                     → no-op
             task_parent_id = existing[4]
             task_code = existing[5]
+            # Aggregate-aware folder positioning: status change of any root
+            # task in a shared-code group repositions the folder to match
+            # the LEAST advanced status among all roots with that code.
+            # This subsumes the old per-transition rename_on_completed /
+            # rename_on_done / revert_on_completed hooks — the same logic
+            # applies, just driven by the aggregate query rather than the
+            # individual transition.
             if (
                 status_changed
                 and self.folder_mgr is not None
                 and task_parent_id is None
                 and task_code
             ):
-                try:
-                    if new_status == TaskStatus.COMPLETED.value:
-                        self.folder_mgr.rename_on_completed(task_code)
-                    elif new_status == TaskStatus.DONE.value:
-                        self.folder_mgr.rename_on_done(task_code)
-                    elif (
-                        old_status == TaskStatus.COMPLETED.value
-                        and new_status == TaskStatus.IN_PROGRESS.value
-                    ):
-                        self.folder_mgr.revert_on_completed(task_code)
-                except Exception as e:
-                    logger.warning(
-                        "Folder transition failed for task %s (%r) %s→%s: %s",
-                        task_id, task_code, old_status, new_status, e,
-                        exc_info=True,
-                    )
+                self._sync_code_folder_position(conn, task_code)
 
             # FS side-effect: folder rename on code change (root-task only).
             # If the task previously had no code (legacy NULL), create a fresh
@@ -1336,20 +1336,48 @@ class TaskStore:
                 final_status = validated_kwargs.get('status', existing[3])
                 try:
                     if task_code:
-                        renamed = self.folder_mgr.rename_code(task_code, new_code_value)
-                        if not renamed:
-                            # Source missing or target collision — fall back to
-                            # ensure_folder_for_status so the new code always
-                            # has on-disk presence at the correct position.
+                        # Shared-code awareness:
+                        # 1. If OTHER root tasks still carry old code → leave
+                        #    old folder for them.
+                        # 2. If new_code already has a folder anywhere → adopt
+                        #    it instead of creating a duplicate.
+                        # 3. Otherwise, safe to rename old → new.
+                        others_with_old_code = conn.execute(
+                            "SELECT COUNT(*) FROM tasks "
+                            "WHERE parent_id IS NULL AND code = ? AND id != ?",
+                            (task_code, task_id),
+                        ).fetchone()[0]
+                        new_code_folder_exists = (
+                            self.folder_mgr._resolve_existing_folder(new_code_value)
+                            is not None
+                        )
+                        if others_with_old_code > 0 or new_code_folder_exists:
+                            # Adopt existing new-code folder, leave old folder
+                            # in place (orphan handling is a user concern).
                             self.folder_mgr.ensure_folder_for_status(
                                 new_code_value, existing[1], task_id, final_status
                             )
+                        else:
+                            renamed = self.folder_mgr.rename_code(
+                                task_code, new_code_value
+                            )
+                            if not renamed:
+                                self.folder_mgr.ensure_folder_for_status(
+                                    new_code_value, existing[1], task_id,
+                                    final_status,
+                                )
                     else:
                         # Legacy NULL → set: no source folder to rename, create
                         # at the position matching current status.
                         self.folder_mgr.ensure_folder_for_status(
                             new_code_value, existing[1], task_id, final_status
                         )
+
+                    # Sync BOTH codes (old still has remaining tasks, new
+                    # might need repositioning to match aggregate).
+                    if task_code:
+                        self._sync_code_folder_position(conn, task_code)
+                    self._sync_code_folder_position(conn, new_code_value)
                 except Exception as e:
                     logger.warning(
                         "Folder rename_code failed for task %s (%r → %r): %s",
@@ -1556,6 +1584,68 @@ class TaskStore:
             raise RuntimeError(f"Failed to get task by ID: {e}")
         finally:
             conn.close()
+
+    # Status buckets for aggregate folder positioning.
+    _ACTIVE_STATUSES = ("pending", "in_progress", "draft")
+    _REVIEW_STATUSES = ("completed", "tested", "validated")
+    _ARCHIVE_STATUSES = ("done",)
+    _IGNORED_STATUSES = ("canceled", "stopped")
+
+    def _aggregate_position_for_code(
+        self, conn: sqlite3.Connection, code: str
+    ) -> Optional[str]:
+        """Compute the target folder position for ``code`` from all root tasks.
+
+        Aggregates statuses across every ROOT task with the supplied code
+        (excluding canceled/stopped) and returns the LEAST advanced bucket:
+
+        * any pending / in_progress / draft → ``"active"``
+        * else any completed / tested / validated → ``"on-review"``
+        * else all done → ``"archive"``
+
+        Returns ``None`` when no contributing root task uses the code (folder
+        is orphaned and should be left where it is).
+        """
+        placeholders = ",".join("?" * len(self._IGNORED_STATUSES))
+        rows = conn.execute(
+            f"SELECT status FROM tasks "
+            f"WHERE parent_id IS NULL AND code = ? "
+            f"AND status NOT IN ({placeholders})",
+            (code, *self._IGNORED_STATUSES),
+        ).fetchall()
+        if not rows:
+            return None
+        statuses = {row[0] for row in rows}
+        if any(s in self._ACTIVE_STATUSES for s in statuses):
+            return "active"
+        if any(s in self._REVIEW_STATUSES for s in statuses):
+            return "on-review"
+        if any(s in self._ARCHIVE_STATUSES for s in statuses):
+            return "archive"
+        # All statuses fell into the ignored bucket — treat as orphan.
+        return None
+
+    def _sync_code_folder_position(
+        self, conn: sqlite3.Connection, code: Optional[str]
+    ) -> None:
+        """Reposition the on-disk folder for ``code`` per the aggregate rule.
+
+        Best-effort: never raises; logs and returns silently on any FS error.
+        No-op when ``code`` is falsy, when ``folder_mgr`` is disabled, or when
+        no contributing root task references the code.
+        """
+        if not code or self.folder_mgr is None:
+            return
+        try:
+            target = self._aggregate_position_for_code(conn, code)
+            if target is None:
+                return
+            self.folder_mgr.sync_folder_position(code, target)
+        except Exception as e:
+            logger.warning(
+                "_sync_code_folder_position failed for code=%r: %s",
+                code, e, exc_info=True,
+            )
 
     def get_root_task(self, task_id: int) -> Optional[Task]:
         """Walk parent_id chain to the ROOT task (parent_id IS NULL).
