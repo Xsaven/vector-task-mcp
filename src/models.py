@@ -203,6 +203,7 @@ class Task:
     order: Optional[int] = None
     time_spent: float = 0.0
     parallel: bool = False
+    code: Optional[str] = None
     status_history: Optional[List[Dict[str, Any]]] = None
 
     def __post_init__(self):
@@ -234,6 +235,7 @@ class Task:
             "order": self.order,
             "time_spent": self.time_spent,
             "parallel": self.parallel,
+            "code": self.code,
             "status_history": self.status_history
         }
 
@@ -257,7 +259,8 @@ class Task:
             order=int(row[13]) if len(row) > 13 and row[13] is not None else None,
             time_spent=row[14] if len(row) > 14 else 0.0,
             parallel=bool(row[15]) if len(row) > 15 and row[15] is not None else False,
-            tag_variants=json.loads(row[16]) if len(row) > 16 and row[16] else []
+            tag_variants=json.loads(row[16]) if len(row) > 16 and row[16] else [],
+            code=row[17] if len(row) > 17 else None
         )
 
 

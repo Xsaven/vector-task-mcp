@@ -288,6 +288,39 @@ def validate_task_status(status: str) -> str:
         return "pending"
 
 
+def validate_code(code: str) -> str:
+    """
+    Validate task code format.
+
+    Format: ^[A-Z]+-\\d+$ (e.g., FEAT-44, FIX-12, REFACTOR-79), max 32 chars.
+
+    Args:
+        code: Code string to validate
+
+    Returns:
+        str: Validated code (unchanged on success)
+
+    Raises:
+        SecurityError: If validation fails
+    """
+    if not isinstance(code, str):
+        raise SecurityError("code must be a string")
+
+    if len(code) == 0:
+        raise SecurityError("code cannot be empty")
+
+    if len(code) > 32:
+        raise SecurityError(f"code exceeds maximum length of 32 characters (current: {len(code)})")
+
+    if not re.match(r'^[A-Z]+-\d+$', code):
+        raise SecurityError(
+            "code must match format PREFIX-NUMBER (uppercase letters, dash, digits). "
+            "Examples: FEAT-44, FIX-12, REFACTOR-79, OLOM-460"
+        )
+
+    return code
+
+
 def validate_priority(priority: str) -> str:
     """
     Validate task priority value.
@@ -437,7 +470,7 @@ def validate_task_stats_params(
     )
 
 
-def validate_task_params(title: str, content: str, status: str = None, parent_id: int = None, comment: str = None, priority: str = None, tags: List[str] = None, order: int = None, parallel: bool = None) -> tuple:
+def validate_task_params(title: str, content: str, status: str = None, parent_id: int = None, comment: str = None, priority: str = None, tags: List[str] = None, order: int = None, parallel: bool = None, code: str = None) -> tuple:
     """
     Validate task creation/update parameters.
 
@@ -451,9 +484,10 @@ def validate_task_params(title: str, content: str, status: str = None, parent_id
         tags: Optional list of tags
         order: Optional task order (positive integer)
         parallel: Optional parallel execution flag (boolean)
+        code: Optional task code (format: PREFIX-N, e.g. FEAT-44)
 
     Returns:
-        tuple: (sanitized_title, sanitized_content, validated_status, validated_parent_id, validated_comment, validated_priority, validated_tags, validated_order)
+        tuple: (sanitized_title, sanitized_content, validated_status, validated_parent_id, validated_comment, validated_priority, validated_tags, validated_order, validated_code)
 
     Raises:
         SecurityError: If validation fails
@@ -510,7 +544,12 @@ def validate_task_params(title: str, content: str, status: str = None, parent_id
             raise SecurityError("order must be positive (>= 1)")
         validated_order = order
 
-    return sanitized_title, sanitized_content, validated_status, validated_parent_id, validated_comment, validated_priority, validated_tags, validated_order
+    # Validate code (optional)
+    validated_code = None
+    if code is not None:
+        validated_code = validate_code(code)
+
+    return sanitized_title, sanitized_content, validated_status, validated_parent_id, validated_comment, validated_priority, validated_tags, validated_order, validated_code
 
 
 def validate_task_update_params(task_id: int, **kwargs) -> tuple:
@@ -621,6 +660,14 @@ def validate_task_update_params(task_id: int, **kwargs) -> tuple:
         if parallel_value is not None and not isinstance(parallel_value, bool):
             raise SecurityError("parallel must be a boolean")
         validated_kwargs['parallel'] = parallel_value
+
+    # Validate code if provided
+    if 'code' in kwargs:
+        code_value = kwargs['code']
+        if code_value is not None:
+            validated_kwargs['code'] = validate_code(code_value)
+        else:
+            validated_kwargs['code'] = None
 
     return task_id, validated_kwargs
 
@@ -802,6 +849,7 @@ def validate_bulk_tasks_params(tasks: List[dict], max_batch_size: int = 50) -> t
             comment = task.get('comment')
             priority = task.get('priority')
             tags = task.get('tags')
+            code = task.get('code')
 
             # Validate using existing single-task validator
             validated_tuple = validate_task_params(
@@ -811,7 +859,8 @@ def validate_bulk_tasks_params(tasks: List[dict], max_batch_size: int = 50) -> t
                 parent_id=parent_id,
                 comment=comment,
                 priority=priority,
-                tags=tags
+                tags=tags,
+                code=code
             )
             validated_tasks.append(validated_tuple)
 
