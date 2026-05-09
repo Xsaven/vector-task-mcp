@@ -98,6 +98,124 @@ class TestCreateFolder:
         ok = mgr.create_folder("FEAT-X", "title", 1)
         assert ok is False  # no exception escapes
 
+    def test_idempotent_when_orphan_on_review_exists(
+        self, mgr: TaskFolderManager, root: Path
+    ):
+        # Pre-create an orphan {code}-on-review folder (e.g. left over after
+        # a task was deleted from DB but the FS folder remained). Calling
+        # create_folder for the same code MUST NOT create a duplicate empty
+        # {code}/ folder — the existing -on-review is adopted instead.
+        on_review = root / "OLOM-390-on-review"
+        on_review.mkdir()
+        (on_review / "task.md").write_text(
+            "# Old\n\n## Vector ID\n100\n", encoding="utf-8"
+        )
+        (on_review / "video.mp4").write_text("video", encoding="utf-8")
+
+        ok = mgr.create_folder("OLOM-390", "New owner", 200)
+
+        assert ok is True
+        # Critical: NO empty duplicate at root level.
+        assert not (root / "OLOM-390").exists()
+        # Existing folder + content preserved.
+        assert on_review.is_dir()
+        assert (on_review / "video.mp4").is_file()
+
+    def test_idempotent_when_orphan_archive_exists(
+        self, mgr: TaskFolderManager, root: Path
+    ):
+        # Same idempotency contract for archived folders.
+        archive_target = root / "Archive" / "OLOM-500"
+        archive_target.mkdir(parents=True)
+        (archive_target / "task.md").write_text(
+            "# Archived\n", encoding="utf-8"
+        )
+
+        ok = mgr.create_folder("OLOM-500", "Re-create attempt", 300)
+
+        assert ok is True
+        assert not (root / "OLOM-500").exists()  # no new duplicate
+        assert not (root / "OLOM-500-on-review").exists()
+        assert archive_target.is_dir()
+
+
+# =============================================================================
+# ensure_folder_for_status
+# =============================================================================
+
+class TestEnsureFolderForStatus:
+    def test_pending_creates_at_active_position(
+        self, mgr: TaskFolderManager, root: Path
+    ):
+        ok = mgr.ensure_folder_for_status("FEAT-50", "T", 1, "pending")
+        assert ok is True
+        assert (root / "FEAT-50").is_dir()
+        assert not (root / "FEAT-50-on-review").exists()
+
+    def test_completed_creates_at_on_review_position(
+        self, mgr: TaskFolderManager, root: Path
+    ):
+        ok = mgr.ensure_folder_for_status("FEAT-51", "T", 1, "completed")
+        assert ok is True
+        assert (root / "FEAT-51-on-review").is_dir()
+        assert not (root / "FEAT-51").exists()
+        assert (root / "FEAT-51-on-review" / "task.md").is_file()
+
+    def test_tested_creates_at_on_review_position(
+        self, mgr: TaskFolderManager, root: Path
+    ):
+        ok = mgr.ensure_folder_for_status("FEAT-52", "T", 1, "tested")
+        assert ok is True
+        assert (root / "FEAT-52-on-review").is_dir()
+
+    def test_validated_creates_at_on_review_position(
+        self, mgr: TaskFolderManager, root: Path
+    ):
+        ok = mgr.ensure_folder_for_status("FEAT-53", "T", 1, "validated")
+        assert ok is True
+        assert (root / "FEAT-53-on-review").is_dir()
+
+    def test_done_creates_at_archive_position(
+        self, mgr: TaskFolderManager, root: Path
+    ):
+        ok = mgr.ensure_folder_for_status("FEAT-54", "T", 1, "done")
+        assert ok is True
+        assert (root / "Archive" / "FEAT-54").is_dir()
+        assert (root / "Archive" / "FEAT-54" / "task.md").is_file()
+        assert not (root / "FEAT-54").exists()
+        assert not (root / "FEAT-54-on-review").exists()
+
+    def test_idempotent_existing_at_on_review(
+        self, mgr: TaskFolderManager, root: Path
+    ):
+        # Existing -on-review folder + status=pending → no duplicate at active.
+        on_review = root / "FEAT-55-on-review"
+        on_review.mkdir()
+        (on_review / "task.md").write_text(
+            "# Pre-existing\n\n## Vector ID\n111\n", encoding="utf-8"
+        )
+
+        ok = mgr.ensure_folder_for_status("FEAT-55", "New", 999, "pending")
+
+        assert ok is True
+        assert not (root / "FEAT-55").exists()
+        assert on_review.is_dir()
+
+    def test_idempotent_existing_at_archive(
+        self, mgr: TaskFolderManager, root: Path
+    ):
+        # Existing Archive folder + status=completed → no duplicate at -on-review.
+        archive = root / "Archive" / "FEAT-56"
+        archive.mkdir(parents=True)
+        (archive / "task.md").write_text("# Old\n", encoding="utf-8")
+
+        ok = mgr.ensure_folder_for_status("FEAT-56", "New", 999, "completed")
+
+        assert ok is True
+        assert not (root / "FEAT-56").exists()
+        assert not (root / "FEAT-56-on-review").exists()
+        assert archive.is_dir()
+
 
 # =============================================================================
 # ensure_vector_id

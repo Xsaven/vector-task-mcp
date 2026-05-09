@@ -42,15 +42,32 @@ class TaskFolderManager:
 
     # ---------------------------------------------------------------- create
 
-    def create_folder(self, code: str, title: str, task_id: int) -> bool:
-        """Create ``{root}/{code}/`` and ``task.md`` (idempotent).
+    # Lifecycle positions used by ensure_folder_for_status. The order
+    # matches _resolve_existing_folder probe order (active first).
+    _STATUSES_AT_ON_REVIEW = ("completed", "tested", "validated")
+    _STATUS_AT_ARCHIVE = "done"
 
-        - Folder is created with ``parents=True, exist_ok=True``.
-        - If ``task.md`` does not exist → it is written from the template.
-        - If it exists without a ``## Vector ID`` section → that section
-          is appended via :meth:`ensure_vector_id`.
+    def create_folder(self, code: str, title: str, task_id: int) -> bool:
+        """Create or adopt the task folder (idempotent across lifecycle positions).
+
+        Probes ``{code}/``, ``{code}-on-review/``, and ``Archive/{code}/`` in
+        order — if a folder exists at ANY of those positions, it is treated
+        as the canonical task folder and reused; only the ``## Vector ID``
+        section is anchored. This prevents creating an empty duplicate
+        ``{code}/`` when an orphan ``{code}-on-review/`` (or archived) folder
+        already lives on disk from a previous session.
+
+        When no folder exists at any position, creates ``{code}/`` with
+        ``task.md`` from the default template.
         """
         try:
+            existing = self._resolve_existing_folder(code)
+            if existing is not None:
+                # Adopt the existing folder: ensure Vector ID anchor matches
+                # the current task_id at whichever position it lives.
+                self._ensure_vector_id_at(existing, task_id)
+                return True
+
             folder = self.root / code
             folder.mkdir(parents=True, exist_ok=True)
 
@@ -61,11 +78,78 @@ class TaskFolderManager:
                     encoding="utf-8",
                 )
             else:
-                self.ensure_vector_id(code, task_id)
+                self._ensure_vector_id_at(folder, task_id)
             return True
         except Exception:
             logger.warning("create_folder failed for code=%r", code, exc_info=True)
             return False
+
+    def ensure_folder_for_status(
+        self, code: str, title: str, task_id: int, status: str
+    ) -> bool:
+        """Ensure folder exists at the lifecycle position matching ``status``.
+
+        - If a folder exists at ANY lifecycle position → adopt it (idempotent).
+        - Else create at the position matching ``status``:
+          * ``completed`` / ``tested`` / ``validated`` → ``{code}-on-review/``
+          * ``done`` → ``Archive/{code}/``
+          * any other (active states) → ``{code}/``
+
+        This is the canonical entry point for creating folders in flows that
+        know the task's current status (task_create, FS catch-up on init,
+        legacy NULL→set in update_task). It guarantees no duplicate folders
+        even when orphaned folders exist on disk from prior sessions.
+
+        Delegates to :meth:`create_folder` (active) + :meth:`rename_on_completed`
+        / :meth:`rename_on_done` rather than duplicating mkdir logic — keeps a
+        single workhorse for FS creation and lets test fixtures that
+        monkeypatch ``create_folder`` keep working.
+        """
+        try:
+            # Idempotent fast-path: existing folder at any lifecycle position
+            # is adopted without further FS writes.
+            if self._resolve_existing_folder(code) is not None:
+                # Re-anchor Vector ID on the existing position.
+                self.create_folder(code, title, task_id)
+                return True
+
+            # No existing folder anywhere — create the active workhorse first.
+            if not self.create_folder(code, title, task_id):
+                return False
+
+            # Move to the lifecycle position matching the supplied status.
+            if status in self._STATUSES_AT_ON_REVIEW:
+                return self.rename_on_completed(code)
+            if status == self._STATUS_AT_ARCHIVE:
+                return self.rename_on_done(code)
+            return True
+        except Exception:
+            logger.warning(
+                "ensure_folder_for_status failed for code=%r status=%r",
+                code, status, exc_info=True,
+            )
+            return False
+
+    def _ensure_vector_id_at(self, folder: Path, task_id: int) -> None:
+        """Append ``## Vector ID`` to ``folder/task.md`` if missing.
+
+        Path-aware variant of :meth:`ensure_vector_id` that operates on the
+        already-resolved folder rather than re-deriving ``{root}/{code}``.
+        Never raises — failures are logged.
+        """
+        try:
+            task_md = folder / "task.md"
+            if not task_md.exists():
+                return
+            content = task_md.read_text(encoding="utf-8")
+            if "## Vector ID" in content:
+                return
+            new_content = content.rstrip() + f"\n\n## Vector ID\n{task_id}\n"
+            task_md.write_text(new_content, encoding="utf-8")
+        except Exception:
+            logger.warning(
+                "_ensure_vector_id_at failed for %s", folder, exc_info=True
+            )
 
     def ensure_vector_id(self, code: str, task_id: int) -> None:
         """Append a ``## Vector ID`` section to ``task.md`` when missing.
@@ -169,6 +253,49 @@ class TaskFolderManager:
             return True
         except Exception:
             logger.warning("rename_on_done failed for code=%r", code, exc_info=True)
+            return False
+
+    def rename_code(self, old_code: str, new_code: str) -> bool:
+        """Rename the on-disk folder for a code change.
+
+        Probes each of the three lifecycle positions in order (active,
+        ``-on-review``, ``Archive/{code}``) and renames the first match
+        to the same position under the new code. If the new-code target
+        already exists at the matched position, aborts and returns False
+        without touching the source.
+
+        No-op + success when ``old_code == new_code``.
+        """
+        try:
+            if old_code == new_code:
+                return True
+
+            candidates = [
+                (self.root / old_code, self.root / new_code),
+                (self.root / f"{old_code}-on-review",
+                 self.root / f"{new_code}-on-review"),
+                (self.root / "Archive" / old_code,
+                 self.root / "Archive" / new_code),
+            ]
+
+            for src, dst in candidates:
+                if src.exists() and src.is_dir():
+                    if dst.exists():
+                        logger.warning(
+                            "rename_code: target %s already exists; aborting", dst
+                        )
+                        return False
+                    dst.parent.mkdir(parents=True, exist_ok=True)
+                    src.rename(dst)
+                    return True
+
+            # No source folder to rename. Not an error — the task may be
+            # legacy/subtask/feature-off; caller decides whether to create.
+            return False
+        except Exception:
+            logger.warning(
+                "rename_code failed for %r → %r", old_code, new_code, exc_info=True
+            )
             return False
 
     # ----------------------------------------------------------------- read

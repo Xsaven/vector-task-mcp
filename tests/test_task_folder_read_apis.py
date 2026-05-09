@@ -139,9 +139,12 @@ class TestTaskGetFolderExtension:
         # folder_path must point at the resolved folder.
         assert got["folder_path"].endswith(created["code"])
 
-    def test_subtask_does_not_include_folder_files(
+    def test_subtask_inherits_root_folder(
         self, monkeypatch, working_dir: Path, folder_root: Path
     ):
+        # Subtasks share the ROOT task's folder (one folder per hierarchy).
+        # task_get on a subtask must surface the root's folder fields with
+        # explicit root_task_id / root_code markers.
         mcp = _build_server_with_folder(monkeypatch, working_dir, folder_root)
         root = _create_root_task(mcp, title="Root", tags=["feature"])
 
@@ -159,8 +162,11 @@ class TestTaskGetFolderExtension:
 
         got = _call_tool(mcp, "task_get", {"task_id": sub["task_id"]})
         assert got["success"] is True
-        assert "folder_path" not in got
-        assert "folder_files" not in got
+        # Subtask query returns root's folder context.
+        assert got["folder_path"].endswith(root["code"])
+        assert any(f["path"].endswith("task.md") for f in got["folder_files"])
+        assert got["root_task_id"] == root["task_id"]
+        assert got["root_code"] == root["code"]
 
     def test_root_with_feature_off_no_folder_fields(
         self, monkeypatch, working_dir: Path
@@ -257,9 +263,12 @@ class TestTaskFolderFilesTool:
         assert result["code"] == "OLOM-460"
         assert any(f["path"].endswith("task.md") for f in result["files"])
 
-    def test_rejects_subtask(
+    def test_subtask_resolves_to_root(
         self, monkeypatch, working_dir: Path, folder_root: Path
     ):
+        # Subtasks share the root's folder. task_folder_files MUST walk up
+        # to the root and return that folder, with root_task_id in the
+        # response so callers can see the resolution.
         mcp = _build_server_with_folder(monkeypatch, working_dir, folder_root)
         root = _create_root_task(mcp, title="Root", tags=["feature"])
         sub = _call_tool(
@@ -274,8 +283,33 @@ class TestTaskFolderFilesTool:
         )
 
         result = _call_tool(mcp, "task_folder_files", {"task_id": sub["task_id"]})
-        assert result["success"] is False
-        assert "Subtasks have no folders" in result["message"]
+        assert result["success"] is True
+        assert result["code"] == root["code"]
+        assert result["folder_path"].endswith(root["code"])
+        assert result["root_task_id"] == root["task_id"]
+
+    def test_subtask_code_resolves_to_root(
+        self, monkeypatch, working_dir: Path, folder_root: Path
+    ):
+        # Same root-walk via the by-code branch: passing a subtask's code
+        # walks the parent chain and returns the root's folder.
+        mcp = _build_server_with_folder(monkeypatch, working_dir, folder_root)
+        root = _create_root_task(mcp, title="Root", tags=["feature"])
+        sub = _call_tool(
+            mcp,
+            "task_create",
+            {
+                "title": "Sub",
+                "content": "y",
+                "tags": ["feature"],
+                "parent_id": root["task_id"],
+            },
+        )
+
+        result = _call_tool(mcp, "task_folder_files", {"code": sub["code"]})
+        assert result["success"] is True
+        assert result["code"] == root["code"]
+        assert result["root_task_id"] == root["task_id"]
 
     def test_rejects_neither_arg(
         self, monkeypatch, working_dir: Path, folder_root: Path
@@ -438,14 +472,14 @@ class TestTaskFolderFilesTool:
 # =============================================================================
 
 class TestVersionBump:
-    def test_pyproject_version_is_1_8_0(self):
+    def test_pyproject_version_is_1_8_1(self):
         pyproject = Path(__file__).parent.parent / "pyproject.toml"
         text = pyproject.read_text(encoding="utf-8")
         # Match exactly the project version line, not any incidental occurrence.
         import re
         m = re.search(r'^version\s*=\s*"([^"]+)"', text, re.MULTILINE)
         assert m is not None, "version line not found in pyproject.toml"
-        assert m.group(1) == "1.8.0", f"expected 1.8.0, got {m.group(1)}"
+        assert m.group(1) == "1.8.1", f"expected 1.8.1, got {m.group(1)}"
 
 
 # =============================================================================

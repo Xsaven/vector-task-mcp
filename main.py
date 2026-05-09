@@ -351,7 +351,8 @@ NEVER update parent task status. System propagates automatically."""
         append_comment: bool = True,
         add_tag: str | None = None,
         remove_tag: str | None = None,
-        parallel: bool | None = None
+        parallel: bool | None = None,
+        code: str | None = None
     ) -> dict[str, Any]:
         """
         Update task fields by ID.
@@ -375,6 +376,11 @@ NEVER update parent task status. System propagates automatically."""
             add_tag: Optional single tag to add (validates duplicates and 10-tag limit)
             remove_tag: Optional single tag to remove (case-insensitive, silent if not found)
             parallel: Optional flag for parallel execution with siblings
+            code: Optional new task code (must match ^[A-Z]+-\\d+$, max 32 chars).
+                Examples: FEAT-44, OLOM-460. Must be unique across the project. For
+                ROOT tasks with --task-folder enabled, the on-disk folder is renamed
+                at its current lifecycle position (active / -on-review / Archive/).
+                Setting a code on a legacy NULL-code task creates a fresh folder.
         """
         try:
             # Ensure database is initialized (lazy loading)
@@ -452,6 +458,8 @@ NEVER update parent task status. System propagates automatically."""
                 kwargs['tags'] = tags
             if parallel is not None:
                 kwargs['parallel'] = parallel
+            if code is not None:
+                kwargs['code'] = code
 
             # Only load embedding model if title, content, or tags are changing
             embedding_model = None
@@ -718,20 +726,32 @@ NEVER update parent task status. System propagates automatically."""
                 if next_child:
                     response["next_child"] = next_child.to_dict()
 
-            # Folder files for ROOT tasks when --task-folder is enabled.
+            # Folder files for ANY task when --task-folder is enabled.
+            # Subtasks inherit the ROOT task's folder — task hierarchy shares
+            # one folder per root, never per-subtask. We walk up to root and
+            # return the root's folder context (with ``root_task_id`` and
+            # ``root_code`` so callers can see whose folder it is).
             # Best-effort: any failure leaves the response unchanged.
             folder_mgr = getattr(task_store, "folder_mgr", None)
-            if folder_mgr is not None and task.parent_id is None and task.code:
+            if folder_mgr is not None:
                 try:
-                    files = folder_mgr.list_files(task.code)
-                    resolved = folder_mgr._resolve_existing_folder(task.code)
-                    if resolved is not None:
-                        try:
-                            folder_path = str(resolved.relative_to(task_store.working_dir))
-                        except (ValueError, AttributeError):
-                            folder_path = str(resolved)
-                        response["folder_path"] = folder_path
-                        response["folder_files"] = files if files is not None else []
+                    if task.parent_id is None:
+                        root_task = task
+                    else:
+                        root_task = task_store.get_root_task(task.id)
+
+                    if root_task is not None and root_task.code:
+                        files = folder_mgr.list_files(root_task.code)
+                        resolved = folder_mgr._resolve_existing_folder(root_task.code)
+                        if resolved is not None:
+                            try:
+                                folder_path = str(resolved.relative_to(task_store.working_dir))
+                            except (ValueError, AttributeError):
+                                folder_path = str(resolved)
+                            response["folder_path"] = folder_path
+                            response["folder_files"] = files if files is not None else []
+                            response["root_task_id"] = root_task.id
+                            response["root_code"] = root_task.code
                 except Exception:
                     # Resource is best-effort — never fail task_get on FS error.
                     pass
@@ -1881,20 +1901,22 @@ NEVER update parent task status. System propagates automatically."""
         code: str | None = None,
     ) -> dict[str, Any]:
         """
-        List files in a root task's folder (requires --task-folder).
+        List files in a task's folder (requires --task-folder).
 
         Provide EXACTLY one of ``task_id`` or ``code`` — never both, never neither.
-        Subtasks have no folders; the call is rejected when the resolved task
-        has a parent. Files are returned recursively as ``{path, relative}``
-        entries (path is relative to ``--working-dir`` when inside it,
-        otherwise absolute).
+        Subtasks share the ROOT task's folder (task hierarchy = one folder per
+        root). When a subtask id/code is supplied, the call walks up to the
+        root and returns the root's folder. Files are returned recursively
+        as ``{path, relative}`` entries (path is relative to ``--working-dir``
+        when inside it, otherwise absolute).
 
         Args:
-            task_id: Root task ID. The task is looked up and its ``code`` is
-                used to resolve the folder. Subtasks (parent_id != None) are
-                rejected.
-            code: Direct task code (e.g. ``FEAT-12``, ``OLOM-460``). The
-                folder is resolved by code without a DB lookup.
+            task_id: Any task ID (root or subtask). Subtasks are resolved to
+                their root automatically.
+            code: A task code (e.g. ``FEAT-12``, ``OLOM-460``). When the code
+                belongs to a subtask, the call walks to the root code via DB
+                lookup. Codes not present in the DB are treated as direct
+                folder probes.
         """
         try:
             # Registration is gated on --task-folder below, so folder_mgr is
@@ -1911,8 +1933,6 @@ NEVER update parent task status. System propagates automatically."""
             # By-code branch: validate the user-supplied code BEFORE handing it
             # to the filesystem manager — prevents path traversal via `..`,
             # absolute paths, null bytes, lowercase/non-conforming codes, etc.
-            # Re-uses the same regex (^[A-Z]+-\d+$, max 32 chars) that
-            # validate_task_params applies at create.
             if code is not None:
                 try:
                     code = validate_code(code)
@@ -1925,6 +1945,7 @@ NEVER update parent task status. System propagates automatically."""
 
             await task_store._ensure_db_initialized_async()
 
+            root_task_id = None
             if task_id is not None:
                 if not isinstance(task_id, int) or task_id < 1:
                     return {
@@ -1932,38 +1953,49 @@ NEVER update parent task status. System propagates automatically."""
                         "error": "Invalid parameter",
                         "message": "task_id must be a positive integer",
                     }
-                task = task_store.get_task_by_id(task_id)
-                if task is None:
+                # Walk up to root regardless of whether the input is root or subtask.
+                root_task = task_store.get_root_task(task_id)
+                if root_task is None:
                     return {
                         "success": False,
                         "error": "Not found",
                         "message": f"Task with ID {task_id} not found",
                     }
-                if task.parent_id is not None:
+                if not root_task.code:
                     return {
                         "success": False,
                         "error": "Invalid task",
-                        "message": "Subtasks have no folders",
+                        "message": "Root task has no code — folder cannot be resolved",
                     }
-                if not task.code:
-                    return {
-                        "success": False,
-                        "error": "Invalid task",
-                        "message": "Task has no code — folder cannot be resolved",
-                    }
-                # Defense-in-depth: re-validate the stored code in case of
-                # legacy rows or future DB drift. The regex is deterministic,
-                # so this is a cheap whitelist re-check, not a real round-trip.
                 try:
-                    resolved_code = validate_code(task.code)
+                    resolved_code = validate_code(root_task.code)
                 except SecurityError:
                     return {
                         "success": False,
                         "error": "Invalid task",
                         "message": "Stored task code does not pass validation",
                     }
+                root_task_id = root_task.id
             else:
+                # By-code: if the code belongs to a known task, walk to root.
+                # If unknown (orphan code passed by user), treat as direct probe.
                 resolved_code = code
+                task_by_code = task_store.get_task_by_code(code)
+                if task_by_code is not None:
+                    if task_by_code.parent_id is None:
+                        root_task_id = task_by_code.id
+                    else:
+                        root = task_store.get_root_task(task_by_code.id)
+                        if root is not None and root.code:
+                            try:
+                                resolved_code = validate_code(root.code)
+                            except SecurityError:
+                                return {
+                                    "success": False,
+                                    "error": "Invalid task",
+                                    "message": "Stored root task code does not pass validation",
+                                }
+                            root_task_id = root.id
 
             files = folder_mgr.list_files(resolved_code)
             resolved = folder_mgr._resolve_existing_folder(resolved_code)
@@ -1975,13 +2007,16 @@ NEVER update parent task status. System propagates automatically."""
                 except (ValueError, AttributeError):
                     folder_path = str(resolved)
 
-            return {
+            response: dict[str, Any] = {
                 "success": True,
                 "code": resolved_code,
                 "folder_path": folder_path,
                 "files": files if files is not None else [],
                 "message": f"Found {len(files) if files else 0} file(s) in folder for {resolved_code}",
             }
+            if root_task_id is not None:
+                response["root_task_id"] = root_task_id
+            return response
 
         except Exception as e:
             return {

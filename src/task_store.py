@@ -299,10 +299,59 @@ class TaskStore:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_time_log_finish_status ON task_time_log(finish_status)")
             conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_task_code ON tasks(code) WHERE code IS NOT NULL")
 
+            # Migration: backfill missing codes for ROOT tasks (parent_id IS NULL).
+            # Legacy tasks created before #209 may have NULL code; the contract
+            # is that every root task has a code (folder feature, project://info,
+            # task_folder_files all rely on it). Subtasks are left untouched —
+            # their NULL code is acceptable since they don't have folders.
+            backfill_rows = conn.execute(
+                "SELECT id, tags FROM tasks "
+                "WHERE parent_id IS NULL AND code IS NULL"
+            ).fetchall()
+            for row_id, tags_json in backfill_rows:
+                try:
+                    tags = json.loads(tags_json) if tags_json else []
+                except (json.JSONDecodeError, TypeError):
+                    tags = []
+                generated = self._generate_code(conn, tags)
+                conn.execute(
+                    "UPDATE tasks SET code = ? WHERE id = ?",
+                    (generated, row_id),
+                )
+            if backfill_rows:
+                logger.info(
+                    "Backfilled %d code(s) for legacy root task(s)", len(backfill_rows)
+                )
+
             # Update query planner statistics
             conn.execute("ANALYZE")
 
             conn.commit()
+
+            # FS catch-up: opportunistically create folders for every root task
+            # that has a code but no on-disk folder yet (e.g. backfilled rows
+            # or rows created when --task-folder was disabled). Resilience
+            # contract: FS failures NEVER affect DB state — already committed.
+            if self.folder_mgr is not None:
+                try:
+                    rows = conn.execute(
+                        "SELECT id, code, title, status FROM tasks "
+                        "WHERE parent_id IS NULL AND code IS NOT NULL"
+                    ).fetchall()
+                    for r_id, r_code, r_title, r_status in rows:
+                        try:
+                            # ensure_folder_for_status is idempotent + lifecycle-
+                            # aware: adopts existing folders at any position and
+                            # creates new ones at the position matching status.
+                            self.folder_mgr.ensure_folder_for_status(
+                                r_code, r_title, r_id, r_status
+                            )
+                        except Exception:
+                            logger.warning(
+                                "FS catch-up failed for code=%r", r_code, exc_info=True
+                            )
+                except Exception:
+                    logger.warning("FS catch-up scan failed", exc_info=True)
 
         except Exception as e:
             conn.rollback()
@@ -677,11 +726,14 @@ class TaskStore:
             conn.commit()
 
             # FS side-effect: create per-task folder for ROOT tasks only.
-            # TaskFolderManager methods are resilient (catch+return False);
-            # a defensive try/except guards against a future contract break.
+            # ensure_folder_for_status adopts existing folders at any
+            # lifecycle position (handles orphaned folders from a prior
+            # session) — never creates a duplicate empty {code}/.
             if self.folder_mgr is not None and validated_parent_id is None:
                 try:
-                    self.folder_mgr.create_folder(final_code, title, task_id)
+                    self.folder_mgr.ensure_folder_for_status(
+                        final_code, title, task_id, TaskStatus.PENDING.value
+                    )
                 except Exception as e:
                     logger.warning(
                         "Folder creation failed for task %s (%r): %s",
@@ -872,10 +924,11 @@ class TaskStore:
                     if metadata["parent_id"] is not None:
                         continue  # subtasks have no folders
                     try:
-                        self.folder_mgr.create_folder(
+                        self.folder_mgr.ensure_folder_for_status(
                             metadata["final_code"],
                             metadata["title"],
                             metadata["task_id"],
+                            TaskStatus.PENDING.value,
                         )
                     except Exception as e:
                         logger.warning(
@@ -1259,6 +1312,45 @@ class TaskStore:
                         exc_info=True,
                     )
 
+            # FS side-effect: folder rename on code change (root-task only).
+            # If the task previously had no code (legacy NULL), create a fresh
+            # folder at the new code instead of renaming.
+            new_code_value = validated_kwargs.get('code')
+            code_changed = (
+                'code' in validated_kwargs
+                and new_code_value is not None
+                and new_code_value != task_code
+            )
+            if (
+                code_changed
+                and self.folder_mgr is not None
+                and task_parent_id is None
+            ):
+                # Resolve the FINAL status (post-update) so the new folder
+                # lands at the lifecycle position matching the actual state.
+                final_status = validated_kwargs.get('status', existing[3])
+                try:
+                    if task_code:
+                        renamed = self.folder_mgr.rename_code(task_code, new_code_value)
+                        if not renamed:
+                            # Source missing or target collision — fall back to
+                            # ensure_folder_for_status so the new code always
+                            # has on-disk presence at the correct position.
+                            self.folder_mgr.ensure_folder_for_status(
+                                new_code_value, existing[1], task_id, final_status
+                            )
+                    else:
+                        # Legacy NULL → set: no source folder to rename, create
+                        # at the position matching current status.
+                        self.folder_mgr.ensure_folder_for_status(
+                            new_code_value, existing[1], task_id, final_status
+                        )
+                except Exception as e:
+                    logger.warning(
+                        "Folder rename_code failed for task %s (%r → %r): %s",
+                        task_id, task_code, new_code_value, e, exc_info=True,
+                    )
+
             # Fetch updated task
             result = conn.execute("""
                 SELECT id, parent_id, status, priority, title, content, comment, tags, created_at, start_at, finish_at, content_hash, estimate, "order", time_spent, parallel, tag_variants, code
@@ -1276,6 +1368,25 @@ class TaskStore:
         except SecurityError as e:
             conn.rollback()
             raise e
+        except sqlite3.IntegrityError as e:
+            conn.rollback()
+            # UNIQUE collision on the partial code index (or any other
+            # constraint). Surface a friendly message to the MCP layer.
+            msg = str(e)
+            if "code" in msg.lower():
+                return {
+                    "success": False,
+                    "error": "Code already in use",
+                    "message": (
+                        f"Code is already taken by another task. "
+                        f"Choose a different code. ({msg})"
+                    ),
+                }
+            return {
+                "success": False,
+                "error": "Database constraint violated",
+                "message": msg,
+            }
         except Exception as e:
             conn.rollback()
             raise RuntimeError(f"Failed to update task: {e}")
@@ -1447,6 +1558,61 @@ class TaskStore:
 
         except Exception as e:
             raise RuntimeError(f"Failed to get task by ID: {e}")
+        finally:
+            conn.close()
+
+    def get_root_task(self, task_id: int) -> Optional[Task]:
+        """Walk parent_id chain to the ROOT task (parent_id IS NULL).
+
+        Returns the input task if it is already a root. Returns None if the
+        starting task does not exist or the chain breaks (orphan parent).
+        Bounded by max-depth=64 to avoid infinite loops on corrupt cycles.
+        """
+        self._ensure_db_initialized_sync()
+        try:
+            conn = self._get_connection()
+        except Exception as e:
+            raise RuntimeError(f"Failed to walk to root task: {e}")
+        try:
+            current_id = task_id
+            for _ in range(64):
+                row = conn.execute(
+                    'SELECT id, parent_id, status, priority, title, content, '
+                    'comment, tags, created_at, start_at, finish_at, content_hash, '
+                    'estimate, "order", time_spent, parallel, tag_variants, code '
+                    'FROM tasks WHERE id = ?',
+                    (current_id,),
+                ).fetchone()
+                if row is None:
+                    return None
+                if row[1] is None:  # parent_id IS NULL → root
+                    return Task.from_db_row(row)
+                current_id = row[1]
+            # Cycle / max depth reached; treat as not found.
+            return None
+        finally:
+            conn.close()
+
+    def get_task_by_code(self, code: str) -> Optional[Task]:
+        """Look up a task by its unique ``code`` field.
+
+        Returns None when no task has the supplied code (e.g. orphan code
+        passed to a read-only API). Uses the partial UNIQUE index.
+        """
+        self._ensure_db_initialized_sync()
+        try:
+            conn = self._get_connection()
+        except Exception as e:
+            raise RuntimeError(f"Failed to get task by code: {e}")
+        try:
+            row = conn.execute(
+                'SELECT id, parent_id, status, priority, title, content, '
+                'comment, tags, created_at, start_at, finish_at, content_hash, '
+                'estimate, "order", time_spent, parallel, tag_variants, code '
+                'FROM tasks WHERE code = ?',
+                (code,),
+            ).fetchone()
+            return Task.from_db_row(row) if row else None
         finally:
             conn.close()
 
