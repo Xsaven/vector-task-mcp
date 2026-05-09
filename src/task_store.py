@@ -939,7 +939,7 @@ class TaskStore:
 
             # Check if task exists
             existing = conn.execute(
-                "SELECT id, title, content, status FROM tasks WHERE id = ?",
+                "SELECT id, title, content, status, parent_id, code FROM tasks WHERE id = ?",
                 (task_id,)
             ).fetchone()
 
@@ -1222,6 +1222,42 @@ class TaskStore:
                 self._propagate_pending_to_parents(conn, task_id)
 
             conn.commit()
+
+            # FS side-effect: folder rename/archive on root-task status transitions.
+            # Predicates: feature on (folder_mgr) + ROOT (parent_id IS NULL) +
+            # task has a code (legacy NULL → skip). TaskFolderManager methods are
+            # already resilient (catch+return False); the wrapper here is
+            # belt-and-suspenders against future contract breaks.
+            #
+            # Transition matrix:
+            #   * → completed                 → rename_on_completed
+            #   * → done                      → rename_on_done
+            #   completed → in_progress (revert) → revert_on_completed
+            #   any other                     → no-op
+            task_parent_id = existing[4]
+            task_code = existing[5]
+            if (
+                status_changed
+                and self.folder_mgr is not None
+                and task_parent_id is None
+                and task_code
+            ):
+                try:
+                    if new_status == TaskStatus.COMPLETED.value:
+                        self.folder_mgr.rename_on_completed(task_code)
+                    elif new_status == TaskStatus.DONE.value:
+                        self.folder_mgr.rename_on_done(task_code)
+                    elif (
+                        old_status == TaskStatus.COMPLETED.value
+                        and new_status == TaskStatus.IN_PROGRESS.value
+                    ):
+                        self.folder_mgr.revert_on_completed(task_code)
+                except Exception as e:
+                    logger.warning(
+                        "Folder transition failed for task %s (%r) %s→%s: %s",
+                        task_id, task_code, old_status, new_status, e,
+                        exc_info=True,
+                    )
 
             # Fetch updated task
             result = conn.execute("""
