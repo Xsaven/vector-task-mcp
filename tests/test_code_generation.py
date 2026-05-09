@@ -165,16 +165,20 @@ class TestCustomCode:
                 title="Bad", content="x", tags=["feature"], code="lowercase-1"
             )
 
-    def test_duplicate_custom_code_rejected(self, task_store):
+    def test_duplicate_custom_code_allowed(self, task_store):
+        # Codes are NOT unique (1.8.2). Two tasks may share a code to
+        # branch work under a single shared folder.
         first = task_store.create_task(
             title="A", content="alpha", tags=["feature"], code="DUP-1"
         )
         assert first["success"] is True
-        # Second insert with same code should fail (UNIQUE partial index)
-        with pytest.raises(Exception):
-            task_store.create_task(
-                title="B", content="beta", tags=["feature"], code="DUP-1"
-            )
+        second = task_store.create_task(
+            title="B", content="beta", tags=["feature"], code="DUP-1"
+        )
+        assert second["success"] is True
+        assert second["code"] == "DUP-1"
+        # Both tasks have distinct ids but share the same code.
+        assert first["task_id"] != second["task_id"]
 
 
 # =============================================================================

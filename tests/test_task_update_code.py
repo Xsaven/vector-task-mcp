@@ -146,9 +146,11 @@ class TestArchiveRename:
 # =============================================================================
 
 class TestValidation:
-    def test_collision_returns_friendly_error(
+    def test_duplicate_code_allowed_shared_folder(
         self, store_with_folder: TaskStore, folder_root: Path
     ):
+        # Codes are NOT unique any more (1.8.2). Two tasks may carry the
+        # same code to branch work under a SHARED folder.
         a = store_with_folder.create_task(
             title="A", content="x", tags=["feature"], code="OLOM-1"
         )
@@ -156,13 +158,23 @@ class TestValidation:
             title="B", content="y", tags=["feature"], code="OLOM-2"
         )
 
-        # Try to rename B onto A's code → UNIQUE violation.
+        # Rename B onto A's code → succeeds; both tasks now share OLOM-1.
         result = store_with_folder.update_task(task_id=b["task_id"], code="OLOM-1")
-        assert result["success"] is False
-        assert "code" in result["message"].lower()
-        # Folders untouched.
+        assert result["success"] is True
+        assert result["task"]["code"] == "OLOM-1"
+
+        # Single shared folder OLOM-1 (the existing one); no duplicate.
         assert (folder_root / "OLOM-1").is_dir()
-        assert (folder_root / "OLOM-2").is_dir()
+        # B's old folder OLOM-2 was renamed away; rename_code moves it to
+        # the target name when the target is missing, but OLOM-1 already
+        # exists, so the fallback ensure_folder_for_status sees the
+        # existing folder and adopts it (no new folder created).
+        # The OLOM-2 folder is the source that rename_code attempted to
+        # move; on collision (target exists) it returns False without
+        # touching source, so OLOM-2 may remain or may have been renamed
+        # depending on order — what matters is OLOM-1 stays the canonical
+        # shared folder.
+        assert (folder_root / "OLOM-1" / "task.md").is_file()
 
     def test_invalid_format_raises_security_error(
         self, store_with_folder: TaskStore

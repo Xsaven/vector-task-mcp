@@ -249,8 +249,11 @@ NEVER update parent task status. System propagates automatically."""
                 docs→DOCS, test→TEST, hotfix→HOTFIX, chore→CHORE, research→RESEARCH,
                 spike→SPIKE, default→TASK). Examples: FEAT-44, FIX-12, REFACTOR-4,
                 DOCS-7. Custom codes accepted (e.g. OLOM-460, JIRA-1234) — must match
-                ^[A-Z]+-\\d+$. AI agents: provide code matching task semantics when
-                clear context exists.
+                ^[A-Z]+-\\d+$. Codes are NOT required to be unique — multiple tasks
+                may share a code to branch work under a single shared folder
+                (the on-disk folder is keyed by code, so all tasks with the same
+                code see the same folder). AI agents: provide code matching task
+                semantics when clear context exists.
         """
         try:
             # Ensure database is initialized (lazy loading)
@@ -377,10 +380,12 @@ NEVER update parent task status. System propagates automatically."""
             remove_tag: Optional single tag to remove (case-insensitive, silent if not found)
             parallel: Optional flag for parallel execution with siblings
             code: Optional new task code (must match ^[A-Z]+-\\d+$, max 32 chars).
-                Examples: FEAT-44, OLOM-460. Must be unique across the project. For
-                ROOT tasks with --task-folder enabled, the on-disk folder is renamed
-                at its current lifecycle position (active / -on-review / Archive/).
-                Setting a code on a legacy NULL-code task creates a fresh folder.
+                Examples: FEAT-44, OLOM-460. Codes are NOT required to be unique —
+                multiple tasks may share a code to branch work under a single shared
+                folder. For ROOT tasks with --task-folder enabled, the on-disk folder
+                is renamed at its current lifecycle position (active / -on-review /
+                Archive/). Setting a code on a legacy NULL-code task creates a fresh
+                folder (or adopts an existing folder with that code).
         """
         try:
             # Ensure database is initialized (lazy loading)

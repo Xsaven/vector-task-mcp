@@ -297,7 +297,12 @@ class TaskStore:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_time_log_start_at ON task_time_log(start_at)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_time_log_finish_at ON task_time_log(finish_at)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_time_log_finish_status ON task_time_log(finish_status)")
-            conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_task_code ON tasks(code) WHERE code IS NOT NULL")
+            # Codes are NOT unique — multiple tasks may share the same code
+            # to indicate "branching" of work that lives in a shared folder.
+            # Drop a legacy UNIQUE definition (from earlier versions) before
+            # creating the non-unique partial index.
+            conn.execute("DROP INDEX IF EXISTS idx_task_code")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_task_code ON tasks(code) WHERE code IS NOT NULL")
 
             # Migration: backfill missing codes for ROOT tasks (parent_id IS NULL).
             # Legacy tasks created before #209 may have NULL code; the contract
@@ -1370,22 +1375,13 @@ class TaskStore:
             raise e
         except sqlite3.IntegrityError as e:
             conn.rollback()
-            # UNIQUE collision on the partial code index (or any other
-            # constraint). Surface a friendly message to the MCP layer.
-            msg = str(e)
-            if "code" in msg.lower():
-                return {
-                    "success": False,
-                    "error": "Code already in use",
-                    "message": (
-                        f"Code is already taken by another task. "
-                        f"Choose a different code. ({msg})"
-                    ),
-                }
+            # `code` is NOT unique any more (post-1.8.2), but the table may
+            # still have other constraints (content_hash UNIQUE, etc.).
+            # Surface the violation as a generic database constraint error.
             return {
                 "success": False,
                 "error": "Database constraint violated",
-                "message": msg,
+                "message": str(e),
             }
         except Exception as e:
             conn.rollback()
