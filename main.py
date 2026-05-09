@@ -711,6 +711,24 @@ NEVER update parent task status. System propagates automatically."""
                 if next_child:
                     response["next_child"] = next_child.to_dict()
 
+            # Folder files for ROOT tasks when --task-folder is enabled.
+            # Best-effort: any failure leaves the response unchanged.
+            folder_mgr = getattr(task_store, "folder_mgr", None)
+            if folder_mgr is not None and task.parent_id is None and task.code:
+                try:
+                    files = folder_mgr.list_files(task.code)
+                    resolved = folder_mgr._resolve_existing_folder(task.code)
+                    if resolved is not None:
+                        try:
+                            folder_path = str(resolved.relative_to(task_store.working_dir))
+                        except (ValueError, AttributeError):
+                            folder_path = str(resolved)
+                        response["folder_path"] = folder_path
+                        response["folder_files"] = files if files is not None else []
+                except Exception:
+                    # Resource is best-effort — never fail task_get on FS error.
+                    pass
+
             return response
 
         except Exception as e:
@@ -1845,6 +1863,104 @@ NEVER update parent task status. System propagates automatically."""
                 "success": False,
                 "error": "Failed to get cookbook",
                 "message": str(e)
+            }
+
+    # ===============================================================================
+    # TASK FOLDER READ APIs
+    # ===============================================================================
+
+    @mcp.tool()
+    async def task_folder_files(
+        task_id: int | None = None,
+        code: str | None = None,
+    ) -> dict[str, Any]:
+        """
+        List files in a root task's folder (requires --task-folder).
+
+        Provide EXACTLY one of ``task_id`` or ``code`` — never both, never neither.
+        Subtasks have no folders; the call is rejected when the resolved task
+        has a parent. Files are returned recursively as ``{path, relative}``
+        entries (path is relative to ``--working-dir`` when inside it,
+        otherwise absolute).
+
+        Args:
+            task_id: Root task ID. The task is looked up and its ``code`` is
+                used to resolve the folder. Subtasks (parent_id != None) are
+                rejected.
+            code: Direct task code (e.g. ``FEAT-12``, ``OLOM-460``). The
+                folder is resolved by code without a DB lookup.
+        """
+        try:
+            folder_mgr = getattr(task_store, "folder_mgr", None)
+            if folder_mgr is None:
+                return {
+                    "success": False,
+                    "error": "Feature disabled",
+                    "message": "--task-folder not enabled",
+                }
+
+            if (task_id is None) == (code is None):
+                return {
+                    "success": False,
+                    "error": "Invalid parameter",
+                    "message": "Provide exactly one of task_id or code",
+                }
+
+            await task_store._ensure_db_initialized_async()
+
+            if task_id is not None:
+                if not isinstance(task_id, int) or task_id < 1:
+                    return {
+                        "success": False,
+                        "error": "Invalid parameter",
+                        "message": "task_id must be a positive integer",
+                    }
+                task = task_store.get_task_by_id(task_id)
+                if task is None:
+                    return {
+                        "success": False,
+                        "error": "Not found",
+                        "message": f"Task with ID {task_id} not found",
+                    }
+                if task.parent_id is not None:
+                    return {
+                        "success": False,
+                        "error": "Invalid task",
+                        "message": "Subtasks have no folders",
+                    }
+                if not task.code:
+                    return {
+                        "success": False,
+                        "error": "Invalid task",
+                        "message": "Task has no code — folder cannot be resolved",
+                    }
+                resolved_code = task.code
+            else:
+                resolved_code = code
+
+            files = folder_mgr.list_files(resolved_code)
+            resolved = folder_mgr._resolve_existing_folder(resolved_code)
+            if resolved is None:
+                folder_path = None
+            else:
+                try:
+                    folder_path = str(resolved.relative_to(task_store.working_dir))
+                except (ValueError, AttributeError):
+                    folder_path = str(resolved)
+
+            return {
+                "success": True,
+                "code": resolved_code,
+                "folder_path": folder_path,
+                "files": files if files is not None else [],
+                "message": f"Found {len(files) if files else 0} file(s) in folder for {resolved_code}",
+            }
+
+        except Exception as e:
+            return {
+                "success": False,
+                "error": "Folder read failed",
+                "message": str(e),
             }
 
     # ===============================================================================

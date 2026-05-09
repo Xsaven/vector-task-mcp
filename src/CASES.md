@@ -3789,6 +3789,161 @@ CONTEXT: Task #{id}""",
 
 ---
 
+## Task Folder Workflow Scenarios
+<!-- description: Per-root-task filesystem folder lifecycle: create, rename on status, archive on done, read APIs. Requires --task-folder. -->
+
+When the server is launched with `--task-folder /path`, every ROOT task gets a folder
+on disk. Subtasks NEVER receive folders. The folder lifecycle mirrors the task status
+lifecycle. Filesystem failures are logged and never block DB operations.
+
+### Create Root Task with Auto-Generated Code
+
+```python
+# tags drive prefix: feature → FEAT-N, bugfix → FIX-N, refactor → REFACTOR-N, ...
+mcp__vector-task__task_create({
+  "title": "Implement OAuth2 flow",
+  "content": "Add OAuth2 with refresh tokens. FILES: src/auth/oauth.py, tests/test_oauth.py",
+  "tags": ["feature", "auth", "strict:strict", "cognitive:deep"],
+  "estimate": 6.0
+})
+# → result.code == "FEAT-44" (next free FEAT-N)
+# → folder created at {--task-folder}/FEAT-44/task.md (template populated with title + Vector ID)
+```
+
+### Create Root Task with Custom Code (Jira / Linear)
+
+```python
+mcp__vector-task__task_create({
+  "title": "Migrate billing to Stripe v2",
+  "content": "Per OLOM ticket. FILES: src/billing/*",
+  "tags": ["feature", "backend", "strict:strict", "cognitive:deep"],
+  "estimate": 12.0,
+  "code": "OLOM-460"   # honored verbatim, must match ^[A-Z]+-\d+$
+})
+# → folder created at {--task-folder}/OLOM-460/
+```
+
+### Adding Files to a Task Folder
+
+```bash
+# Agent / human writes design notes, screenshots, or scratch files into the folder.
+# These are part of the task's working set and surface via task_get / task_folder_files.
+echo "## Decision log" > {--task-folder}/FEAT-44/decisions.md
+cp screenshot.png      {--task-folder}/FEAT-44/
+```
+
+### Status Transitions and Folder Rename Behavior
+
+| Transition                       | Folder action                              |
+|----------------------------------|--------------------------------------------|
+| `* → in_progress`                | none (folder stays at `{code}/`)           |
+| `in_progress → completed`        | rename `{code}` → `{code}-on-review`       |
+| `completed → in_progress`        | revert: `{code}-on-review` → `{code}`      |
+| `completed → tested`             | none (folder stays at `{code}-on-review`)  |
+| `tested → validated`             | none                                       |
+| `completed/tested/validated → done` | move into `{code}/Archive/{code}-done/` (jump-to-done supported) |
+
+Reverting from `tested`/`validated` back to `in_progress` follows the same revert path.
+Subtasks NEVER trigger folder operations regardless of status.
+
+### Archive Lifecycle on `done`
+
+```python
+# Walk a task to terminal state, or jump directly from completed/tested/validated:
+mcp__vector-task__task_update({"task_id": 44, "status": "done"})
+# → folder structure becomes:
+#   {--task-folder}/FEAT-44/
+#       Archive/
+#           FEAT-44-done/
+#               task.md
+#               decisions.md
+#               ... (everything that was at the source)
+```
+
+The canonical container `{code}/` always exists post-archive — `Archive/` is a child of it.
+This is what `_resolve_existing_folder` matches on first probe.
+
+### Reading Folder Files via `task_get`
+
+```python
+mcp__vector-task__task_get({"task_id": 44})
+# →
+# {
+#   "success": true,
+#   "task": { "id": 44, "code": "FEAT-44", "parent_id": null, ... },
+#   "folder_path": "tasks/FEAT-44",                # relative to --working-dir when inside
+#   "folder_files": [
+#     {"path": "tasks/FEAT-44/task.md",      "relative": true},
+#     {"path": "tasks/FEAT-44/decisions.md", "relative": true}
+#   ],
+#   "message": "Task retrieved successfully"
+# }
+```
+
+`folder_path` / `folder_files` are present ONLY when ALL hold:
+1. `--task-folder` is enabled (server-side feature opt-in),
+2. `task.parent_id IS NULL` (root task),
+3. `task.code` is set (legacy NULL-code rows are skipped).
+
+### Reading Folder Files via `task_folder_files`
+
+```python
+# By task ID:
+mcp__vector-task__task_folder_files({"task_id": 44})
+
+# Or by code (no DB lookup needed):
+mcp__vector-task__task_folder_files({"code": "FEAT-44"})
+
+# Errors (the call is rejected, not silently empty):
+mcp__vector-task__task_folder_files({})                          # → "Provide exactly one of task_id or code"
+mcp__vector-task__task_folder_files({"task_id": 44, "code": "X"}) # → same error (XOR)
+mcp__vector-task__task_folder_files({"task_id": 99})              # → "Subtasks have no folders" (if 99 has parent)
+mcp__vector-task__task_folder_files({"task_id": 44})              # → "--task-folder not enabled" if feature off
+```
+
+### `project://info` Resource Overview
+
+```python
+# MCP resource — read-only project metadata.
+# Clients (Claude Desktop, FastMCP-aware tools) read it via the resource URI:
+#   project://info
+# Returns:
+# {
+#   "working_dir": "/path/to/project",
+#   "task_folder": "/path/to/project/tasks",     # null when feature off
+#   "task_folder_enabled": true,
+#   "task_folders": [
+#     {"code": "FEAT-44", "title": "...", "folder_path": "tasks/FEAT-44",
+#      "files_count": 3, "status_suffix": "none"},                 # active root
+#     {"code": "FIX-12",  "title": "...", "folder_path": "tasks/FIX-12-on-review",
+#      "files_count": 2, "status_suffix": "-on-review"},           # completed root
+#     {"code": "OLOM-460","title": "...", "folder_path": "tasks/OLOM-460",
+#      "files_count": 5, "status_suffix": "-done"}                 # archived root
+#   ]
+# }
+```
+
+`status_suffix` is derived from on-disk folder state:
+- `none` → folder is at `{code}/` and has no `Archive/{code}-done/` subfolder,
+- `-on-review` → folder is at `{code}-on-review/`,
+- `-done` → folder is at `{code}/` AND `{code}/Archive/{code}-done/` exists.
+
+Canceled tasks and tasks without a code are excluded.
+
+### Resilience Contract
+
+- All FS operations in `TaskFolderManager` catch exceptions and return `False`
+  (or `None` for `list_files`). They NEVER raise to the caller.
+- `task_create` / `task_update` commit DB rows BEFORE invoking folder hooks —
+  a filesystem failure leaves the DB row intact and the response unchanged.
+- `task_get` and `task_folder_files` are read-only and best-effort: any FS
+  exception leaves the response either silent (folder_path/folder_files omitted
+  from `task_get`) or empty (`folder_files: []` from `task_folder_files`).
+- Bulk creates isolate per-task FS failures: a `OSError` for one row never
+  aborts the rest of the batch.
+
+---
+
 ## Standard Search Patterns Quick Reference
 <!-- description: Canonical category + query patterns for Memory MCP searches. -->
 

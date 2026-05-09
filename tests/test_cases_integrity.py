@@ -72,6 +72,7 @@ def get_expected_categories():
         "constitutional-learn-protocol",
         "self-improvement",
         "lightweight-lawyer-gate",
+        "task-folder-workflow",
         "standard-search-patterns-quick-reference",
         "tag-taxonomy-quick-reference",
         "workflow",

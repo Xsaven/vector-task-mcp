@@ -247,6 +247,16 @@ List tasks:
 ```
 Get task with ID 123
 ```
+For ROOT tasks (`parent_id IS NULL`) when `--task-folder` is enabled, the response
+also includes `folder_path` (resolved folder location) and `folder_files`
+(recursive file listing).
+
+**7a. `task_folder_files` - List Files in Task Folder**
+```
+List files in folder for task 123 (or by code "FEAT-12")
+```
+Requires `--task-folder`. Provide exactly one of `task_id` or `code`. Subtasks
+are rejected. Returns `{code, folder_path, files: [{path, relative}, ...]}`.
 
 **8. `task_last` - Get Last Created Task**
 ```
@@ -424,22 +434,25 @@ Shows how IDF weights, classification, and variants affect ranking.
 
 ### Task Status Lifecycle
 
-**Available statuses**: `pending`, `in_progress`, `completed`, `tested`, `validated`, `stopped`
+**Available statuses**: `draft`, `pending`, `in_progress`, `completed`, `tested`, `validated`, `done`, `stopped`, `canceled`
 
 ```
-pending → in_progress → completed → tested → validated
-              ↓
-           stopped → (resume) → in_progress
+draft → pending → in_progress → completed → tested → validated → done
+                       ↓                     ↓ ↓ ↓
+                   stopped/canceled       (jump-to-done)
 ```
 
 | Status | Description |
 |--------|-------------|
+| `draft` | Task draft (not ready for execution) |
 | `pending` | Task not yet started |
 | `in_progress` | Currently being worked on |
 | `completed` | Task finished (basic completion) |
 | `tested` | Task completed and tested |
 | `validated` | Task completed, tested, and validated |
+| `done` | Final / archived; reachable as a jump from `completed`, `tested`, or `validated` |
 | `stopped` | Task paused/blocked (can be resumed) |
+| `canceled` | Task canceled (will not be done) |
 
 ## 🔧 Configuration
 
@@ -455,6 +468,17 @@ uv run main.py --working-dir ~/projects/my-project
 
 **Available Options:**
 - `--working-dir` (required): Directory where task database will be stored
+- `--task-folder` (optional): Root directory for per-task folders (feature opt-in).
+  When set, every ROOT task gets a folder named by its `code` (e.g. `FEAT-12/`)
+  with an auto-generated `task.md` template. Subtasks never receive folders.
+  Status transitions rename/archive the folder automatically:
+  `completed → -on-review`, `done → Archive/{code}-done`, revert on `in_progress`.
+  Filesystem failures are logged and never block DB operations.
+  Read APIs: `task_get` returns `folder_path` + `folder_files` for root tasks;
+  the dedicated `task_folder_files(task_id|code)` tool returns the listing on demand.
+  The `project://info` resource exposes the per-root folder summary.
+- `--timezone` (optional): IANA timezone for displayed timestamps (default: UTC).
+  Example: `--timezone Europe/Kyiv`
 
 ### Working Directory Structure
 

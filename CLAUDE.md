@@ -44,6 +44,23 @@ uv run main.py --working-dir ./
   - Database will be stored at `{working-dir}/memory/tasks.db`
   - Example: `--working-dir /path/to/project` → database at `/path/to/project/memory/tasks.db`
 
+- `--task-folder` - Optional root directory for per-task folders (feature opt-in)
+  - When set, every ROOT task gets its own folder named by its `code`
+    (e.g. `{--task-folder}/FEAT-44/`) plus a generated `task.md` template.
+  - Subtasks NEVER receive folders — only root tasks (`parent_id IS NULL`).
+  - Status transitions rename/archive the folder automatically:
+    `completed → -on-review`, `done → Archive/{code}-done`,
+    `completed → in_progress` reverts the rename.
+  - Filesystem failures NEVER block DB operations — the manager logs warnings
+    and returns silently. DB state is the source of truth.
+  - Read APIs: `task_get` returns `folder_path` + `folder_files` for root tasks;
+    `task_folder_files(task_id|code)` returns the same listing on demand.
+  - Example: `--task-folder /path/to/project/tasks` → root task `FEAT-12`
+    gets `/path/to/project/tasks/FEAT-12/task.md`.
+
+- `--timezone` - Optional IANA timezone for displayed timestamps (default: UTC)
+  - Example: `--timezone Europe/Kyiv`
+
 **⚠️ IMPORTANT for macOS Users:**
 - Standard Python from python.org does NOT support SQLite loadable extensions
 - Use conda/miniforge Python or compile Python with `--enable-loadable-sqlite-extensions`
@@ -78,14 +95,16 @@ uv run main.py --working-dir ./
 - Індекси на status, priority, created_at, content_hash
 
 ## Task Management Features
-- **Task Lifecycle**: draft → pending → in_progress → completed → tested → validated (or stopped/canceled at any point)
-- **Statuses**: draft, pending, in_progress, completed, tested, validated, stopped, canceled
+- **Task Lifecycle**: draft → pending → in_progress → completed → tested → validated → done (or stopped/canceled at any point)
+  - `done` may also be jumped to directly from `completed`, `tested`, or `validated`.
+- **Statuses**: draft, pending, in_progress, completed, tested, validated, done, stopped, canceled
   - **draft**: Task draft (not ready for execution)
   - **pending**: Task ready but not started
   - **in_progress**: Currently being worked on
   - **completed**: Basic completion
   - **tested**: Completed and tested
   - **validated**: Completed, tested, and validated
+  - **done**: Final / archived (terminal); reachable as a jump from completed/tested/validated
   - **stopped**: Paused/blocked
   - **canceled**: Task canceled (will not be done)
 - **Priorities**: low, medium, high, critical
@@ -95,14 +114,39 @@ uv run main.py --working-dir ./
 - **Comments**: Add notes to tasks without changing content
 
 ## Available MCP Tools
-- `task_create` - Create new task
-- `task_create_bulk` - Create multiple tasks
+- `task_create` - Create new task (accepts optional `code`)
+- `task_create_bulk` - Create multiple tasks (each accepts optional `code`)
 - `task_update` - Update task fields (status, priority, tags, comment with append, add_tag, remove_tag)
 - `task_delete` / `task_delete_bulk` - Delete tasks
 - `task_list` - List/search tasks with filters
-- `task_get` - Get specific task by ID
+- `task_get` - Get specific task by ID; for root tasks with `--task-folder` enabled, response also includes `folder_path` + `folder_files`
 - `task_next` - Get next task to work on
 - `task_stats` - Get task statistics (includes unique_tags)
+- `task_folder_files` - List files in a root task's folder by `task_id` OR `code` (requires `--task-folder`)
+
+## MCP Resources
+- `project://info` - Read-only project metadata: working_dir, task_folder, task_folder_enabled, per-root-task folder summary
+
+## Task Folder Feature
+
+When `--task-folder` is set, the server materialises a folder per **ROOT** task. Subtasks never receive folders.
+
+### Folder structure
+- Initial: `{--task-folder}/{code}/` containing `task.md`
+- After `completed`: `{--task-folder}/{code}-on-review/`
+- After `done`: `{--task-folder}/{code}/Archive/{code}-done/` (folder moved into Archive subfolder of canonical container)
+- Reverting `completed → in_progress`: folder renamed back to `{--task-folder}/{code}/`
+
+### task.md template
+Auto-generated on folder creation, contains: title (H1), Vector ID (= task_id), placeholders for Branch, Session ID, Description. Existing files are preserved on idempotent re-create; only the Vector ID section is appended when missing.
+
+### Codes
+- Auto-generated from primary type tag: `feature → FEAT-N`, `bugfix → FIX-N`, `refactor → REFACTOR-N`, etc.
+- Custom codes accepted (e.g. `OLOM-460`, `JIRA-1234`) — must match `^[A-Z]+-\d+$`.
+- Codes are unique per project (UNIQUE partial index on `code IS NOT NULL`).
+
+### Resilience contract
+Filesystem operations NEVER block DB transactions. Failures are logged with a warning and the DB state remains authoritative. Reads are best-effort — missing folders return empty file lists, not errors.
 
 ## Important Notes
 - **sqlite-vec** працює як extension для SQLite, завантажується через `sqlite_vec.load(conn)`
