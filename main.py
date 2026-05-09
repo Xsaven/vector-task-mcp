@@ -145,7 +145,8 @@ NEVER update parent task status. System propagates automatically."""
         estimate: float | None = None,
         order: int | None = None,
         tags: list[str] = None,
-        parallel: bool = False
+        parallel: bool = False,
+        code: str | None = None
     ) -> dict[str, Any]:
         """
         Create new task with vector embedding for semantic search.
@@ -160,6 +161,13 @@ NEVER update parent task status. System propagates automatically."""
             order: Optional task order/position (auto-assigned if not provided)
             tags: Optional list of tags for organization (max 10)
             parallel: Whether task can be executed in parallel with siblings (default: False)
+            code: Optional task code. If not provided, auto-generated as {TYPE}-{N}
+                based on task type tag (feature→FEAT, bugfix→FIX, refactor→REFACTOR,
+                docs→DOCS, test→TEST, hotfix→HOTFIX, chore→CHORE, research→RESEARCH,
+                spike→SPIKE, default→TASK). Examples: FEAT-44, FIX-12, REFACTOR-4,
+                DOCS-7. Custom codes accepted (e.g. OLOM-460, JIRA-1234) — must match
+                ^[A-Z]+-\\d+$. AI agents: provide code matching task semantics when
+                clear context exists.
         """
         try:
             # Ensure database is initialized (lazy loading)
@@ -178,6 +186,7 @@ NEVER update parent task status. System propagates automatically."""
                 estimate=estimate,
                 order=order,
                 parallel=parallel,
+                code=code,
                 embedding_model=model
             )
             return result
@@ -211,6 +220,7 @@ NEVER update parent task status. System propagates automatically."""
                 - order (optional): Task order/position (auto-assigned if not provided)
                 - tags (optional): List of tags for organization (max 10)
                 - parallel (optional): Whether task can be executed in parallel with siblings (default: False)
+                - code (optional): Task code (PREFIX-N, e.g. FEAT-44). Auto-generated from tags if omitted.
 
         Example:
             tasks = [

@@ -7,6 +7,7 @@ Handles database initialization, task CRUD operations, and vector search.
 """
 
 import asyncio
+import logging
 import sqlite3
 import sqlite_vec
 import json
@@ -26,6 +27,9 @@ from .security import (
     validate_bulk_tasks_params, validate_bulk_task_ids
 )
 from .embeddings import get_embedding_model, EmbeddingModel
+
+
+logger = logging.getLogger(__name__)
 
 
 class TaskStore:
@@ -672,6 +676,18 @@ class TaskStore:
 
             conn.commit()
 
+            # FS side-effect: create per-task folder for ROOT tasks only.
+            # TaskFolderManager methods are resilient (catch+return False);
+            # a defensive try/except guards against a future contract break.
+            if self.folder_mgr is not None and validated_parent_id is None:
+                try:
+                    self.folder_mgr.create_folder(final_code, title, task_id)
+                except Exception as e:
+                    logger.warning(
+                        "Folder creation failed for task %s (%r): %s",
+                        task_id, final_code, e, exc_info=True,
+                    )
+
             return {
                 "success": True,
                 "task_id": task_id,
@@ -807,6 +823,8 @@ class TaskStore:
                 # Within the same connection, prior INSERTs are visible to SELECT
                 # MAX before commit, so per-prefix counters increment correctly.
                 final_code = metadata["code"] if metadata["code"] is not None else self._generate_code(conn, metadata["tags"])
+                # Persist final_code for post-commit folder hooks.
+                metadata["final_code"] = final_code
 
                 # Insert task
                 cursor = conn.execute("""
@@ -830,6 +848,7 @@ class TaskStore:
 
                 task_id = cursor.lastrowid
                 created_task_ids.append(task_id)
+                metadata["task_id"] = task_id  # for post-commit folder hooks
 
                 # Validate self-reference before continuing
                 validate_parent_id(task_id, metadata["parent_id"], conn)
@@ -843,6 +862,27 @@ class TaskStore:
 
             # Commit all operations
             conn.commit()
+
+            # FS side-effect: create per-task folder for ROOT tasks only.
+            # Resilient — TaskFolderManager catches exceptions internally;
+            # defensive try/except per task guards against contract breaks
+            # without aborting the rest of the bulk batch.
+            if self.folder_mgr is not None:
+                for metadata in task_metadata:
+                    if metadata["parent_id"] is not None:
+                        continue  # subtasks have no folders
+                    try:
+                        self.folder_mgr.create_folder(
+                            metadata["final_code"],
+                            metadata["title"],
+                            metadata["task_id"],
+                        )
+                    except Exception as e:
+                        logger.warning(
+                            "Folder creation failed for task %s (%r): %s",
+                            metadata["task_id"], metadata["final_code"], e,
+                            exc_info=True,
+                        )
 
             result = {
                 "success": True,
