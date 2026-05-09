@@ -62,6 +62,47 @@ def validate_working_dir(working_dir: str) -> Path:
         raise SecurityError(f"Path validation failed: {e}")
 
 
+def validate_task_folder(folder) -> "Path | None":
+    """
+    Validate and normalize task folder root path.
+
+    Used by --task-folder CLI flag. Same security checks as validate_working_dir
+    (forbidden chars, control chars). Auto-creates folder if missing.
+
+    Args:
+        folder: Path string/Path to validate, or None (feature off).
+
+    Returns:
+        Resolved Path when feature on, None when feature off.
+
+    Raises:
+        SecurityError: If validation fails.
+    """
+    if folder is None:
+        return None
+
+    try:
+        path = Path(folder).resolve()
+
+        path_str = str(path)
+        if re.search(r'[;&|`$]', path_str):
+            raise SecurityError("Invalid characters in task folder path")
+        if re.search(r'[\x00-\x1F\x7F]', path_str):
+            raise SecurityError("Control characters in task folder path")
+
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
+    except SecurityError:
+        raise
+    except PermissionError as e:
+        raise SecurityError(f"Permission denied for task folder: {e}")
+    except OSError as e:
+        raise SecurityError(f"Invalid task folder path: {e}")
+    except Exception as e:
+        raise SecurityError(f"Task folder validation failed: {e}")
+
+
 def sanitize_input(text: str, max_length: int = None) -> str:
     """
     Sanitize and validate user input.

@@ -34,7 +34,7 @@ from mcp.server.fastmcp import FastMCP
 
 # Import our modules
 from src.models import Config
-from src.security import validate_working_dir, SecurityError, validate_task_list_params, validate_tags, validate_task_stats_params
+from src.security import validate_working_dir, validate_task_folder, SecurityError, validate_task_list_params, validate_tags, validate_task_stats_params
 from src.task_store import TaskStore
 from src.normalization import TagNormalizer
 
@@ -71,6 +71,19 @@ def get_timezone() -> str | None:
     return None
 
 
+def get_task_folder() -> "Path | None":
+    """Get task folder root from command line arguments.
+
+    Returns:
+        Resolved Path when --task-folder is set, None otherwise (feature off).
+    """
+    if "--task-folder" in sys.argv:
+        idx = sys.argv.index("--task-folder")
+        if idx + 1 < len(sys.argv):
+            return validate_task_folder(sys.argv[idx + 1])
+    return None
+
+
 def create_server() -> FastMCP:
     """Create and configure the MCP server"""
 
@@ -78,11 +91,19 @@ def create_server() -> FastMCP:
     try:
         working_dir = get_working_dir()
         timezone = get_timezone()
+        task_folder = get_task_folder()
         memory_dir = working_dir / "memory"
         memory_dir.mkdir(parents=True, exist_ok=True)
         task_db_path = memory_dir / "tasks.db"
-        task_store = TaskStore(task_db_path, timezone=timezone)
+        task_store = TaskStore(
+            task_db_path,
+            timezone=timezone,
+            task_folder=task_folder,
+            working_dir=working_dir,
+        )
         print(f"Task database path: {task_db_path} (lazy initialization)", file=sys.stderr)
+        if task_folder is not None:
+            print(f"Task folder root: {task_folder}", file=sys.stderr)
     except Exception as e:
         print(f"Failed to initialize task store: {e}", file=sys.stderr)
         sys.exit(1)

@@ -30,7 +30,14 @@ from .embeddings import get_embedding_model, EmbeddingModel
 class TaskStore:
     """Thread-safe task storage using sqlite-vec for semantic search."""
 
-    def __init__(self, db_path: Path, embedding_model_name: str = None, timezone: str = None):
+    def __init__(
+        self,
+        db_path: Path,
+        embedding_model_name: str = None,
+        timezone: str = None,
+        task_folder: Optional[Path] = None,
+        working_dir: Optional[Path] = None,
+    ):
         """
         Initialize task store.
 
@@ -38,10 +45,30 @@ class TaskStore:
             db_path: Path to SQLite database file
             embedding_model_name: Name of embedding model to use
             timezone: Timezone for timestamp storage (default: UTC)
+            task_folder: Optional root for per-task folders (--task-folder
+                feature). When None, folder operations are disabled.
+            working_dir: Optional working directory used to compute relative
+                paths in folder listings. Defaults to db_path's project root
+                ({db_path}.parent.parent — i.e. above the memory/ dir).
         """
         self.db_path = Path(db_path)
         self.embedding_model_name = embedding_model_name or Config.EMBEDDING_MODEL
         self.timezone = timezone or "UTC"
+        self.task_folder = Path(task_folder) if task_folder is not None else None
+        self.working_dir = (
+            Path(working_dir) if working_dir is not None else self.db_path.parent.parent
+        )
+
+        # Folder manager — instantiated only when feature is enabled.
+        # Lazy import keeps src.task_folder optional and avoids any chance
+        # of circular dependencies.
+        if self.task_folder is not None:
+            from .task_folder import TaskFolderManager
+            self.folder_mgr: "Optional[TaskFolderManager]" = TaskFolderManager(
+                task_folder_root=self.task_folder, working_dir=self.working_dir
+            )
+        else:
+            self.folder_mgr = None
 
         # Lazy-loaded embedding model (async initialization)
         self._embedding_model: EmbeddingModel | None = None
