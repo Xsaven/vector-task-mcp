@@ -79,16 +79,76 @@ def get_timezone() -> str | None:
     return None
 
 
-def get_task_folder() -> "Path | None":
-    """Get task folder root from command line arguments.
+def _read_task_folder_from_env(working_dir: Path) -> "str | None":
+    """Look up ``TASK_FOLDER`` in ``.brain/.env`` and ``.xbrain/.env``.
 
-    Returns:
-        Resolved Path when --task-folder is set, None otherwise (feature off).
+    Returns the first non-empty value found (in that order). Empty values,
+    missing files, or unreadable files are skipped silently.
+
+    Recognised line formats:
+        TASK_FOLDER=value
+        TASK_FOLDER='value'
+        TASK_FOLDER="value"
+        # ... (comments are ignored)
+    """
+    candidates = (
+        working_dir / ".brain" / ".env",
+        working_dir / ".xbrain" / ".env",
+    )
+    for env_file in candidates:
+        if not env_file.is_file():
+            continue
+        try:
+            for raw_line in env_file.read_text(encoding="utf-8").splitlines():
+                line = raw_line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if not line.startswith("TASK_FOLDER="):
+                    continue
+                value = line.split("=", 1)[1].strip()
+                # Strip a single matched pair of surrounding quotes.
+                if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+                    value = value[1:-1]
+                if value:
+                    return value
+                # Found but empty → not configured in this file; keep looking.
+                break
+        except Exception:
+            continue
+    return None
+
+
+def get_task_folder() -> "Path | None":
+    """Resolve task folder from CLI flag, then ``.env`` fallback.
+
+    Priority order:
+    1. ``--task-folder <value>`` CLI flag, only when ``<value>`` is non-empty
+       after stripping. An empty value (``--task-folder ""`` or trailing
+       whitespace) is NOT considered "enabled" and falls through.
+    2. ``TASK_FOLDER`` in ``{working_dir}/.brain/.env``.
+    3. ``TASK_FOLDER`` in ``{working_dir}/.xbrain/.env``.
+    4. ``None`` (feature disabled).
+
+    For values from ``.env``, relative paths are resolved against
+    ``working_dir`` (CLI values keep the historical behaviour of resolving
+    against the process CWD via ``Path.resolve``).
     """
     if "--task-folder" in sys.argv:
         idx = sys.argv.index("--task-folder")
         if idx + 1 < len(sys.argv):
-            return validate_task_folder(sys.argv[idx + 1])
+            cli_value = sys.argv[idx + 1].strip()
+            if cli_value:
+                return validate_task_folder(cli_value)
+        # Empty/missing value → fall through to .env lookup.
+
+    working_dir = get_working_dir()
+    env_value = _read_task_folder_from_env(working_dir)
+    if env_value:
+        env_path = Path(env_value)
+        if not env_path.is_absolute():
+            env_path = working_dir / env_path
+        return validate_task_folder(str(env_path))
+
     return None
 
 
@@ -564,7 +624,8 @@ NEVER update parent task status. System propagates automatically."""
         status: str = None,
         parent_id: int = None,
         tags: list[str] = None,
-        ids: list[int] = None
+        ids: list[int] = None,
+        code: str = None
     ) -> dict[str, Any]:
         """
         List tasks with optional filters and vector semantic search.
@@ -577,19 +638,24 @@ NEVER update parent task status. System propagates automatically."""
             parent_id: Optional parent task ID filter (for subtasks)
             tags: Optional list of tags to filter by (matches tasks containing ANY of the specified tags)
             ids: Optional list of task IDs to filter by (AND logic with other filters, max 50)
+            code: Optional exact-match code filter (must match ^[A-Z]+-\\d+$).
+                Returns ALL tasks carrying this exact code (codes may be shared
+                across tasks since 1.8.2). Combines with other filters via AND.
         """
         try:
             # Ensure database is initialized (lazy loading)
             await task_store._ensure_db_initialized_async()
 
             # Validate parameters
-            limit, offset, status, parent_id, validated_tags, validated_ids = validate_task_list_params(
+            (limit, offset, status, parent_id, validated_tags,
+             validated_ids, validated_code) = validate_task_list_params(
                 limit=limit,
                 offset=offset,
                 status=status,
                 parent_id=parent_id,
                 tags=tags,
-                ids=ids
+                ids=ids,
+                code=code,
             )
 
             # Only load embedding model if query is provided (semantic search)
@@ -606,6 +672,7 @@ NEVER update parent task status. System propagates automatically."""
                 parent_id=parent_id,
                 tags=validated_tags,
                 ids=validated_ids,
+                code=validated_code,
                 embedding_model=embedding_model
             )
 

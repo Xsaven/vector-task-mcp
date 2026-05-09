@@ -1923,6 +1923,7 @@ class TaskStore:
         parent_id: int = None,
         tags: List[str] = None,
         ids: List[int] = None,
+        code: str = None,
         embedding_model: Optional[EmbeddingModel] = None,
         use_idf_rerank: bool = True
     ) -> Tuple[List[Task], int]:
@@ -1937,6 +1938,9 @@ class TaskStore:
             parent_id: Optional parent_id filter
             tags: Optional list of tags to filter by (OR logic - matches if ANY tag present)
             ids: Optional list of task IDs to filter by (AND logic with other filters)
+            code: Optional exact-match code filter (e.g. ``OLOM-460``). With
+                shared codes (post-1.8.2), matches every task carrying that
+                exact code.
             embedding_model: Optional pre-loaded embedding model (for async callers, only used if query provided)
             use_idf_rerank: If True, apply IDF-based reranking for vector search results (default: True)
 
@@ -2037,6 +2041,11 @@ class TaskStore:
                     where_clauses.append(f"t.id IN ({placeholders})")
                     params.extend(validated_ids)
 
+                # Add code filter (exact match, AND with other filters)
+                if code:
+                    where_clauses.append("t.code = ?")
+                    params.append(code)
+
                 # Add WHERE clause if filters exist
                 if where_clauses:
                     base_query += " WHERE " + " AND ".join(where_clauses)
@@ -2090,6 +2099,11 @@ class TaskStore:
                     placeholders = ','.join(['?'] * len(validated_ids))
                     where_clauses.append(f"id IN ({placeholders})")
                     params.extend(validated_ids)
+
+                # Add code filter (exact match, AND with other filters)
+                if code:
+                    where_clauses.append("code = ?")
+                    params.append(code)
 
                 if where_clauses:
                     base_query += " WHERE " + " AND ".join(where_clauses)

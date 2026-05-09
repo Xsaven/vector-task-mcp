@@ -774,7 +774,7 @@ def validate_parent_id(task_id: int, parent_id: int | None, conn: sqlite3.Connec
         raise SecurityError(f"Parent task with ID {parent_id} does not exist")
 
 
-def validate_task_list_params(limit: int, offset: int, status: str = None, parent_id: int = None, tags: List[str] = None, ids: List[int] = None) -> tuple:
+def validate_task_list_params(limit: int, offset: int, status: str = None, parent_id: int = None, tags: List[str] = None, ids: List[int] = None, code: str = None) -> tuple:
     """
     Validate task_list parameters.
 
@@ -785,9 +785,12 @@ def validate_task_list_params(limit: int, offset: int, status: str = None, paren
         parent_id: Optional parent task ID filter
         tags: Optional list of tags to filter by
         ids: Optional list of task IDs to filter by
+        code: Optional exact-match code filter (matches ``^[A-Z]+-\\d+$``)
 
     Returns:
-        tuple: (validated_limit, validated_offset, validated_status, validated_parent_id, validated_tags, validated_ids)
+        tuple: (validated_limit, validated_offset, validated_status,
+                validated_parent_id, validated_tags, validated_ids,
+                validated_code)
 
     Raises:
         SecurityError: If validation fails
@@ -873,7 +876,12 @@ def validate_task_list_params(limit: int, offset: int, status: str = None, paren
 
             validated_ids = deduplicated_ids if deduplicated_ids else None
 
-    return limit, offset, validated_status, validated_parent_id, validated_tags, validated_ids
+    # Validate code (optional, exact match)
+    validated_code = None
+    if code is not None:
+        validated_code = validate_code(code)
+
+    return limit, offset, validated_status, validated_parent_id, validated_tags, validated_ids, validated_code
 
 
 def validate_bulk_tasks_params(tasks: List[dict], max_batch_size: int = 50) -> tuple:
