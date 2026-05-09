@@ -1877,7 +1877,6 @@ NEVER update parent task status. System propagates automatically."""
     # TASK FOLDER READ APIs
     # ===============================================================================
 
-    @mcp.tool()
     async def task_folder_files(
         task_id: int | None = None,
         code: str | None = None,
@@ -1899,13 +1898,9 @@ NEVER update parent task status. System propagates automatically."""
                 folder is resolved by code without a DB lookup.
         """
         try:
-            folder_mgr = getattr(task_store, "folder_mgr", None)
-            if folder_mgr is None:
-                return {
-                    "success": False,
-                    "error": "Feature disabled",
-                    "message": "--task-folder not enabled",
-                }
+            # Registration is gated on --task-folder below, so folder_mgr is
+            # guaranteed to exist when this function is invoked through MCP.
+            folder_mgr = task_store.folder_mgr
 
             if (task_id is None) == (code is None):
                 return {
@@ -1995,6 +1990,12 @@ NEVER update parent task status. System propagates automatically."""
                 "error": "Folder read failed",
                 "message": str(e),
             }
+
+    # Register `task_folder_files` ONLY when --task-folder is enabled.
+    # When the feature is off, the tool is not advertised by the MCP server —
+    # clients see exactly the surface that is meaningful for the configuration.
+    if task_folder is not None:
+        task_folder_files = mcp.tool()(task_folder_files)  # noqa: F811
 
     # ===============================================================================
     # MCP RESOURCES

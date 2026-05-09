@@ -298,13 +298,25 @@ class TestTaskFolderFilesTool:
         assert result["success"] is False
         assert "exactly one" in result["message"].lower()
 
-    def test_feature_off_returns_error(
+    def test_feature_off_tool_not_registered(
         self, monkeypatch, working_dir: Path
     ):
+        # When --task-folder is not set, the `task_folder_files` MCP tool
+        # MUST NOT be advertised by the server. Clients should not see a
+        # no-op endpoint for a feature that is disabled.
         mcp = _build_server_without_folder(monkeypatch, working_dir)
-        result = _call_tool(mcp, "task_folder_files", {"task_id": 1})
-        assert result["success"] is False
-        assert "not enabled" in result["message"].lower()
+        tools = asyncio.run(mcp.list_tools())
+        tool_names = [getattr(t, "name", None) for t in tools]
+        assert "task_folder_files" not in tool_names
+
+    def test_feature_on_tool_registered(
+        self, monkeypatch, working_dir: Path, folder_root: Path
+    ):
+        # Sanity counterpart: when --task-folder IS set, the tool is exposed.
+        mcp = _build_server_with_folder(monkeypatch, working_dir, folder_root)
+        tools = asyncio.run(mcp.list_tools())
+        tool_names = [getattr(t, "name", None) for t in tools]
+        assert "task_folder_files" in tool_names
 
     def test_missing_task_returns_error(
         self, monkeypatch, working_dir: Path, folder_root: Path
