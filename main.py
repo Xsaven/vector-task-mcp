@@ -84,6 +84,82 @@ def get_task_folder() -> "Path | None":
     return None
 
 
+def _get_task_folders_summary(task_store) -> list[dict]:
+    """Build per-root-task folder summary for the project://info resource.
+
+    Returns a list of {code, title, folder_path, files_count, status_suffix}
+    for every ROOT task with a code that has a corresponding folder on disk.
+    Subtasks, tasks without a code, canceled tasks, and tasks whose folder
+    is missing are skipped silently.
+
+    Returns an empty list when the --task-folder feature is disabled
+    (folder_mgr is None) or any unexpected error occurs (resource is
+    best-effort by design).
+    """
+    folder_mgr = getattr(task_store, "folder_mgr", None)
+    if folder_mgr is None:
+        return []
+
+    summary: list[dict] = []
+    try:
+        task_store._ensure_db_initialized_sync()
+        conn = task_store._get_connection()
+        try:
+            rows = conn.execute(
+                "SELECT id, code, title, status FROM tasks "
+                "WHERE parent_id IS NULL AND code IS NOT NULL "
+                "AND status NOT IN (?)",
+                ("canceled",),
+            ).fetchall()
+        finally:
+            conn.close()
+    except Exception:
+        return []
+
+    for _id, code, title, status in rows:
+        try:
+            resolved = folder_mgr._resolve_existing_folder(code)
+        except Exception:
+            continue
+        if resolved is None:
+            continue
+
+        # Status suffix derived from folder name on disk.
+        # Resolution order in #210 _resolve_existing_folder: {code}, then
+        # {code}-on-review. After a `done` transition the canonical
+        # container is {code} (Archive lives inside) — so the existence of
+        # the Archive subfolder is what distinguishes "done" from default.
+        if resolved.name.endswith("-on-review"):
+            status_suffix = "-on-review"
+        elif (resolved / "Archive" / f"{code}-done").is_dir():
+            status_suffix = "-done"
+        else:
+            status_suffix = "none"
+
+        # files_count: rglob('*') filtered to files (consistent with
+        # TaskFolderManager.list_files).
+        try:
+            files_count = sum(1 for p in resolved.rglob("*") if p.is_file())
+        except Exception:
+            files_count = 0
+
+        # folder_path: relative to working_dir when inside, else absolute.
+        try:
+            folder_path = str(resolved.relative_to(task_store.working_dir))
+        except (ValueError, AttributeError):
+            folder_path = str(resolved)
+
+        summary.append({
+            "code": code,
+            "title": title,
+            "folder_path": folder_path,
+            "files_count": files_count,
+            "status_suffix": status_suffix,
+        })
+
+    return summary
+
+
 def create_server() -> FastMCP:
     """Create and configure the MCP server"""
 
@@ -1770,6 +1846,21 @@ NEVER update parent task status. System propagates automatically."""
                 "error": "Failed to get cookbook",
                 "message": str(e)
             }
+
+    # ===============================================================================
+    # MCP RESOURCES
+    # ===============================================================================
+
+    @mcp.resource("project://info")
+    async def project_info() -> dict:
+        """Return project metadata: working_dir, task_folder status, folders summary."""
+        feature_on = task_folder is not None
+        return {
+            "working_dir": str(working_dir),
+            "task_folder": str(task_folder) if feature_on else None,
+            "task_folder_enabled": feature_on,
+            "task_folders": _get_task_folders_summary(task_store) if feature_on else [],
+        }
 
     return mcp
 
