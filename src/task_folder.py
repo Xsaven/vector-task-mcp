@@ -133,12 +133,14 @@ class TaskFolderManager:
             return False
 
     def rename_on_done(self, code: str) -> bool:
-        """Move the task folder into ``{code}/Archive/{code}-done/``.
+        """Move the task folder into ``{root}/Archive/{code}/``.
 
         Source resolution: prefer ``{code}-on-review`` (set by
-        ``rename_on_completed``); fall back to ``{code}``. The ``{code}``
-        directory is then re-created as a container for the ``Archive``
-        subfolder, and the source is moved to ``Archive/{code}-done``.
+        ``rename_on_completed``); fall back to ``{code}`` (jump-to-done
+        from validated/tested without going through completed). The
+        target is a single top-level ``Archive/`` directory shared by
+        every archived task, so active tasks remain visually separated
+        from archived ones at the root of ``--task-folder``.
         """
         try:
             src_review = self.root / f"{code}-on-review"
@@ -147,25 +149,16 @@ class TaskFolderManager:
             if src_review.exists():
                 source = src_review
             elif src_orig.exists():
-                # Source is the destination's container — move it aside first
-                # to avoid a recursive ``shutil.move``.
-                tmp = self.root / f"{code}-pending-archive"
-                if tmp.exists():
-                    logger.warning(
-                        "rename_on_done: tmp dir %s already exists; aborting", tmp
-                    )
-                    return False
-                src_orig.rename(tmp)
-                source = tmp
+                source = src_orig
             else:
                 logger.warning(
                     "rename_on_done: no source folder for code=%r", code
                 )
                 return False
 
-            archive_parent = self.root / code / "Archive"
+            archive_parent = self.root / "Archive"
             archive_parent.mkdir(parents=True, exist_ok=True)
-            target = archive_parent / f"{code}-done"
+            target = archive_parent / code
             if target.exists():
                 logger.warning(
                     "rename_on_done: target %s already exists; aborting", target
@@ -210,13 +203,18 @@ class TaskFolderManager:
             return None
 
     def _resolve_existing_folder(self, code: str) -> Optional[Path]:
-        """Find the task folder under any of its possible names.
+        """Find the task folder under any of its possible locations.
 
-        Checks (in order): ``{code}``, ``{code}-on-review``. After a
-        ``rename_on_done`` the canonical container is ``{code}`` (the
-        Archive lives inside it), so it is matched by the first probe.
+        Probes in order: ``{code}`` (active), ``{code}-on-review``
+        (completed/awaiting review), ``Archive/{code}`` (done). The
+        first match wins — under normal lifecycle exactly one of these
+        exists at any given time.
         """
-        for candidate in (self.root / code, self.root / f"{code}-on-review"):
+        for candidate in (
+            self.root / code,
+            self.root / f"{code}-on-review",
+            self.root / "Archive" / code,
+        ):
             if candidate.exists() and candidate.is_dir():
                 return candidate
         return None

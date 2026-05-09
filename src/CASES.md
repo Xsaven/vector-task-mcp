@@ -3841,7 +3841,7 @@ cp screenshot.png      {--task-folder}/FEAT-44/
 | `completed → in_progress`        | revert: `{code}-on-review` → `{code}`      |
 | `completed → tested`             | none (folder stays at `{code}-on-review`)  |
 | `tested → validated`             | none                                       |
-| `completed/tested/validated → done` | move into `{code}/Archive/{code}-done/` (jump-to-done supported) |
+| `completed/tested/validated → done` | move into top-level `Archive/{code}/` (jump-to-done supported) |
 
 Reverting from `tested`/`validated` back to `in_progress` follows the same revert path.
 Subtasks NEVER trigger folder operations regardless of status.
@@ -3852,16 +3852,20 @@ Subtasks NEVER trigger folder operations regardless of status.
 # Walk a task to terminal state, or jump directly from completed/tested/validated:
 mcp__vector-task__task_update({"task_id": 44, "status": "done"})
 # → folder structure becomes:
-#   {--task-folder}/FEAT-44/
+#   {--task-folder}/
 #       Archive/
-#           FEAT-44-done/
+#           FEAT-44/
 #               task.md
 #               decisions.md
 #               ... (everything that was at the source)
+#       FIX-7/                ← other active tasks unaffected
+#       OLOM-460/             ← other active tasks unaffected
 ```
 
-The canonical container `{code}/` always exists post-archive — `Archive/` is a child of it.
-This is what `_resolve_existing_folder` matches on first probe.
+`Archive/` is a single top-level shared directory at the root of `--task-folder`. Every
+archived task lands directly under it as `Archive/{code}/`. The active root never leaves
+an empty `{code}/` container behind — the source folder is moved cleanly. `_resolve_existing_folder`
+probes in order: `{code}` (active), `{code}-on-review` (review), `Archive/{code}` (done).
 
 ### Reading Folder Files via `task_get`
 
@@ -3898,7 +3902,8 @@ mcp__vector-task__task_folder_files({"code": "FEAT-44"})
 mcp__vector-task__task_folder_files({})                          # → "Provide exactly one of task_id or code"
 mcp__vector-task__task_folder_files({"task_id": 44, "code": "X"}) # → same error (XOR)
 mcp__vector-task__task_folder_files({"task_id": 99})              # → "Subtasks have no folders" (if 99 has parent)
-mcp__vector-task__task_folder_files({"task_id": 44})              # → "--task-folder not enabled" if feature off
+# Note: when --task-folder is OFF, the tool is NOT registered with the MCP server at all.
+# Clients see a smaller tool list (no task_folder_files), not a runtime "feature disabled" error.
 ```
 
 ### `project://info` Resource Overview
@@ -3917,16 +3922,16 @@ mcp__vector-task__task_folder_files({"task_id": 44})              # → "--task-
 #      "files_count": 3, "status_suffix": "none"},                 # active root
 #     {"code": "FIX-12",  "title": "...", "folder_path": "tasks/FIX-12-on-review",
 #      "files_count": 2, "status_suffix": "-on-review"},           # completed root
-#     {"code": "OLOM-460","title": "...", "folder_path": "tasks/OLOM-460",
+#     {"code": "OLOM-460","title": "...", "folder_path": "tasks/Archive/OLOM-460",
 #      "files_count": 5, "status_suffix": "-done"}                 # archived root
 #   ]
 # }
 ```
 
-`status_suffix` is derived from on-disk folder state:
-- `none` → folder is at `{code}/` and has no `Archive/{code}-done/` subfolder,
-- `-on-review` → folder is at `{code}-on-review/`,
-- `-done` → folder is at `{code}/` AND `{code}/Archive/{code}-done/` exists.
+`status_suffix` is derived from on-disk folder location:
+- `none` → folder is at `{code}/` (active),
+- `-on-review` → folder is at `{code}-on-review/` (completed, awaiting review),
+- `-done` → folder is at `Archive/{code}/` (archived under the top-level `Archive/`).
 
 Canceled tasks and tasks without a code are excluded.
 

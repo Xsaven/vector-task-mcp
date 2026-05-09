@@ -191,12 +191,13 @@ class TestRenameOnDone:
         ok = mgr.rename_on_done("FEAT-10")
 
         assert ok is True
-        archive = root / "FEAT-10" / "Archive" / "FEAT-10-done"
+        archive = root / "Archive" / "FEAT-10"
         assert archive.is_dir()
         assert (archive / "task.md").is_file()
         assert (archive / "notes.md").read_text(encoding="utf-8") == "hello"
-        # Old -on-review folder is gone
+        # Old -on-review folder is gone, no leftover {code}/ container either
         assert not (root / "FEAT-10-on-review").exists()
+        assert not (root / "FEAT-10").exists()
 
     def test_done_jump_from_original(self, mgr: TaskFolderManager, root: Path):
         # Jump-to-done without going through -on-review first
@@ -206,12 +207,12 @@ class TestRenameOnDone:
         ok = mgr.rename_on_done("FEAT-11")
 
         assert ok is True
-        archive = root / "FEAT-11" / "Archive" / "FEAT-11-done"
+        archive = root / "Archive" / "FEAT-11"
         assert archive.is_dir()
         assert (archive / "task.md").is_file()
         assert (archive / "notes.md").read_text(encoding="utf-8") == "x"
-        # No leftover temp directory
-        assert not (root / "FEAT-11-pending-archive").exists()
+        # Source moved cleanly — no leftover at root
+        assert not (root / "FEAT-11").exists()
 
     def test_done_missing_source(self, mgr: TaskFolderManager):
         assert mgr.rename_on_done("FEAT-MISSING") is False
@@ -220,13 +221,13 @@ class TestRenameOnDone:
         self, mgr: TaskFolderManager, root: Path
     ):
         # Simulate an interrupted previous run: the -on-review source still
-        # exists AND the final target was already created.
+        # exists AND the final Archive/{code} target was already created.
         on_review = root / "FEAT-12-on-review"
         on_review.mkdir()
         (on_review / "task.md").write_text("source", encoding="utf-8")
 
         # Pre-populate the destination — manager must abort safely
-        (root / "FEAT-12" / "Archive" / "FEAT-12-done").mkdir(parents=True)
+        (root / "Archive" / "FEAT-12").mkdir(parents=True)
 
         assert mgr.rename_on_done("FEAT-12") is False
         # Source folder must remain intact (no destructive partial move)

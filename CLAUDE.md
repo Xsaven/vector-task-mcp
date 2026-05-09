@@ -49,7 +49,7 @@ uv run main.py --working-dir ./
     (e.g. `{--task-folder}/FEAT-44/`) plus a generated `task.md` template.
   - Subtasks NEVER receive folders — only root tasks (`parent_id IS NULL`).
   - Status transitions rename/archive the folder automatically:
-    `completed → -on-review`, `done → Archive/{code}-done`,
+    `completed → -on-review`, `done → Archive/{code}` (top-level Archive),
     `completed → in_progress` reverts the rename.
   - Filesystem failures NEVER block DB operations — the manager logs warnings
     and returns silently. DB state is the source of truth.
@@ -134,7 +134,7 @@ When `--task-folder` is set, the server materialises a folder per **ROOT** task.
 ### Folder structure
 - Initial: `{--task-folder}/{code}/` containing `task.md`
 - After `completed`: `{--task-folder}/{code}-on-review/`
-- After `done`: `{--task-folder}/{code}/Archive/{code}-done/` (folder moved into Archive subfolder of canonical container)
+- After `done`: `{--task-folder}/Archive/{code}/` (folder moved into a single top-level shared `Archive/`; the active root no longer leaves an empty container behind)
 - Reverting `completed → in_progress`: folder renamed back to `{--task-folder}/{code}/`
 
 ### task.md template

@@ -132,14 +132,13 @@ def _get_task_folders_summary(task_store) -> list[dict]:
         if resolved is None:
             continue
 
-        # Status suffix derived from folder name on disk.
-        # Resolution order in #210 _resolve_existing_folder: {code}, then
-        # {code}-on-review. After a `done` transition the canonical
-        # container is {code} (Archive lives inside) — so the existence of
-        # the Archive subfolder is what distinguishes "done" from default.
+        # Status suffix derived from folder location on disk.
+        # Resolution order: {code} (active), {code}-on-review (review),
+        # Archive/{code} (done). The done state is distinguished by the
+        # parent directory being the top-level shared "Archive/".
         if resolved.name.endswith("-on-review"):
             status_suffix = "-on-review"
-        elif (resolved / "Archive" / f"{code}-done").is_dir():
+        elif resolved.parent.name == "Archive" and resolved.parent.parent == folder_mgr.root:
             status_suffix = "-done"
         else:
             status_suffix = "none"

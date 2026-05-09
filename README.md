@@ -472,7 +472,7 @@ uv run main.py --working-dir ~/projects/my-project
   When set, every ROOT task gets a folder named by its `code` (e.g. `FEAT-12/`)
   with an auto-generated `task.md` template. Subtasks never receive folders.
   Status transitions rename/archive the folder automatically:
-  `completed → -on-review`, `done → Archive/{code}-done`, revert on `in_progress`.
+  `completed → -on-review`, `done → Archive/{code}` (top-level Archive), revert on `in_progress`.
   Filesystem failures are logged and never block DB operations.
   Read APIs: `task_get` returns `folder_path` + `folder_files` for root tasks;
   the dedicated `task_folder_files(task_id|code)` tool returns the listing on demand.

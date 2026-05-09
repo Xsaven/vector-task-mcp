@@ -5,7 +5,7 @@ Integration: task_update folder rename/archive on status transitions (task #214)
 Tests TaskStore.update_task hooks that call TaskFolderManager rename/archive
 methods on root-task status transitions:
 - * → completed         → rename_on_completed (folder → {code}-on-review)
-- * → done              → rename_on_done (folder → {code}/Archive/{code}-done)
+- * → done              → rename_on_done (folder → Archive/{code})
 - completed → in_progress (revert) → revert_on_completed
 - any other transition  → no-op
 
@@ -109,11 +109,12 @@ class TestUpdateTransitionsFeatureOn:
 
         store_with_folder.update_task(task_id=result["task_id"], status="done")
 
-        archive = folder_root / code / "Archive" / f"{code}-done"
+        archive = folder_root / "Archive" / code
         assert archive.is_dir()
         assert (archive / "task.md").is_file()
-        # Old -on-review folder gone after move.
+        # Old -on-review folder gone after move; no leftover {code}/ container.
         assert not (folder_root / f"{code}-on-review").exists()
+        assert not (folder_root / code).exists()
 
     def test_tested_to_done_archives(
         self, store_with_folder: TaskStore, folder_root: Path
@@ -124,7 +125,7 @@ class TestUpdateTransitionsFeatureOn:
         code = result["code"]
         _walk_to(store_with_folder, result["task_id"], "tested")
         store_with_folder.update_task(task_id=result["task_id"], status="done")
-        assert (folder_root / code / "Archive" / f"{code}-done").is_dir()
+        assert (folder_root / "Archive" / code).is_dir()
 
     def test_validated_to_done_archives(
         self, store_with_folder: TaskStore, folder_root: Path
@@ -135,7 +136,7 @@ class TestUpdateTransitionsFeatureOn:
         code = result["code"]
         _walk_to(store_with_folder, result["task_id"], "validated")
         store_with_folder.update_task(task_id=result["task_id"], status="done")
-        assert (folder_root / code / "Archive" / f"{code}-done").is_dir()
+        assert (folder_root / "Archive" / code).is_dir()
 
     def test_completed_to_in_progress_reverts(
         self, store_with_folder: TaskStore, folder_root: Path
@@ -212,8 +213,10 @@ class TestPredicateSuppression:
         _walk_to(store_with_folder, child["task_id"], "validated")
         store_with_folder.update_task(task_id=child["task_id"], status="done")
 
-        for suffix in ("", "-on-review", "/Archive/{}-done".format(child_code)):
-            assert not (folder_root / f"{child_code}{suffix}").exists()
+        # Child must not appear at any of the three layout positions.
+        assert not (folder_root / child_code).exists()
+        assert not (folder_root / f"{child_code}-on-review").exists()
+        assert not (folder_root / "Archive" / child_code).exists()
 
     def test_feature_off_no_fs_calls(
         self, task_store, monkeypatch
