@@ -269,7 +269,7 @@ NEVER update parent task status. System propagates automatically."""
             task_id: Task ID to update
             title: Optional new title
             content: Optional new content
-            status: Optional new status (draft, pending, in_progress, completed, tested, validated, stopped, canceled)
+            status: Optional new status (draft, pending, in_progress, completed, tested, validated, done, stopped, canceled). `done` is a final status that may be jumped to from completed/tested/validated; transitions from pending/in_progress/draft/stopped/canceled directly to done are rejected.
             parent_id: Optional new parent task ID
             comment: Optional comment to add or replace
             start_at: Optional start timestamp (ISO 8601 format)
@@ -467,7 +467,7 @@ NEVER update parent task status. System propagates automatically."""
             query: Optional semantic search query for title/content
             limit: Max results (1-50, default 10)
             offset: Starting position for pagination (default 0)
-            status: Optional status filter (draft, pending, in_progress, completed, tested, validated, stopped, canceled)
+            status: Optional status filter (draft, pending, in_progress, completed, tested, validated, done, stopped, canceled)
             parent_id: Optional parent task ID filter (for subtasks)
             tags: Optional list of tags to filter by (matches tasks containing ANY of the specified tags)
             ids: Optional list of task IDs to filter by (AND logic with other filters, max 50)
@@ -652,7 +652,7 @@ NEVER update parent task status. System propagates automatically."""
 
         Returns comprehensive task statistics including:
         - Total tasks count
-        - Count by status (draft, pending, in_progress, completed, tested, validated, stopped, canceled)
+        - Count by status (draft, pending, in_progress, completed, tested, validated, done, stopped, canceled)
         - Tasks with subtasks count
         - Next task ID (from smart selection logic)
         - Unique tags across all tasks
@@ -664,7 +664,7 @@ NEVER update parent task status. System propagates automatically."""
             start_before: Filter tasks started before this date (ISO 8601 format)
             finish_after: Filter tasks finished after this date (ISO 8601 format)
             finish_before: Filter tasks finished before this date (ISO 8601 format)
-            status: Filter by task status (draft, pending, in_progress, completed, tested, validated, stopped, canceled)
+            status: Filter by task status (draft, pending, in_progress, completed, tested, validated, done, stopped, canceled)
             priority: Filter by priority (low, medium, high, critical)
             tags: Filter by tags (OR logic - matches tasks with ANY specified tag)
             parent_id: Filter for subtasks of specific parent (use 0 for root tasks only)

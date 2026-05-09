@@ -362,6 +362,39 @@ def validate_code(code: str) -> str:
     return code
 
 
+def validate_status_transition(old_status: str, new_status: str) -> None:
+    """
+    Validate a status transition white-list.
+
+    Allowed jumps to "done": completed→done, tested→done, validated→done.
+    Forbidden: pending/in_progress/draft/stopped/canceled → done.
+    All other transitions: passthrough (existing rules elsewhere apply).
+
+    Same-status transitions (X → X) are always allowed (no-op).
+
+    Args:
+        old_status: Current task status (from DB).
+        new_status: Requested new status (already validated as a known value).
+
+    Raises:
+        SecurityError: When the transition is on the forbidden list.
+    """
+    if old_status == new_status:
+        return
+
+    if new_status == TaskStatus.DONE.value:
+        allowed_origins = {
+            TaskStatus.COMPLETED.value,
+            TaskStatus.TESTED.value,
+            TaskStatus.VALIDATED.value,
+        }
+        if old_status not in allowed_origins:
+            raise SecurityError(
+                f"Invalid transition: {old_status!r} → 'done'. "
+                "Jump-to-done allowed only from completed/tested/validated."
+            )
+
+
 def validate_priority(priority: str) -> str:
     """
     Validate task priority value.

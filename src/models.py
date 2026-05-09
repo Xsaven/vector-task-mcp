@@ -140,6 +140,7 @@ class TaskStatus(Enum):
     COMPLETED = "completed"
     TESTED = "tested"
     VALIDATED = "validated"
+    DONE = "done"
     STOPPED = "stopped"
     CANCELED = "canceled"
     DRAFT = "draft"
@@ -156,8 +157,8 @@ class TaskStatus(Enum):
 
     @classmethod
     def finish_statuses(cls) -> tuple:
-        """Get tuple of finish statuses (completed, tested, validated)"""
-        return (cls.COMPLETED.value, cls.TESTED.value, cls.VALIDATED.value)
+        """Get tuple of finish statuses (completed, tested, validated, done)"""
+        return (cls.COMPLETED.value, cls.TESTED.value, cls.VALIDATED.value, cls.DONE.value)
 
     @classmethod
     def is_finish_status(cls, value: str) -> bool:

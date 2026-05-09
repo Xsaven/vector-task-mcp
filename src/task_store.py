@@ -21,6 +21,7 @@ from .models import Task, TaskStatus, TaskStats, Config, Priority, decimal_hours
 from .security import (
     SecurityError, sanitize_input, validate_task_status,
     validate_task_params, validate_task_update_params,
+    validate_status_transition,
     generate_content_hash, validate_file_path, validate_parent_id,
     validate_bulk_tasks_params, validate_bulk_task_ids
 )
@@ -907,6 +908,10 @@ class TaskStore:
                     "success": False,
                     "message": f"Task {task_id} not found"
                 }
+
+            # Validate status transition (jump-to-done white-list)
+            if 'status' in validated_kwargs:
+                validate_status_transition(existing[3], validated_kwargs['status'])
 
             # Validate: cannot set finish status if has unfinished children
             if 'status' in validated_kwargs:
