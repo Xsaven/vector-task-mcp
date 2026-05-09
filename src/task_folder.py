@@ -7,20 +7,40 @@ Resilience contract: ALL public methods are wrapped in try/except. Failures
 log a warning (with traceback) and return ``False`` (or ``None`` for
 ``list_files``). The manager never raises to its caller — DB operations
 must always succeed regardless of filesystem state.
+
+Templates: when ``{task_folder}/task-template.md`` exists, it is used as the
+source for generated ``task.md`` files. Otherwise the built-in
+:data:`TASK_MD_TEMPLATE` default is used. Both formats support these
+substitution variables (delivered via :func:`str.format`):
+
+- ``{task.title}``  — task title
+- ``{task.id}``     — task id (Vector ID)
+- ``{task.code}``   — task code (e.g. ``FEAT-44``)
+- ``{date}``        — current date, ``YYYY-MM-DD``
+- ``{datetime}``    — current ISO 8601 timestamp
+
+Unknown placeholders are kept as the literal ``{...}`` token rather than
+raising — keeps custom templates resilient to typos.
 """
 
 import logging
 import shutil
+import string
+from datetime import datetime
 from pathlib import Path
+from types import SimpleNamespace
 from typing import List, Optional
 
 logger = logging.getLogger(__name__)
 
 
-TASK_MD_TEMPLATE = """# {title}
+TASK_MD_TEMPLATE = """# {task.title}
 
 ## Vector ID
-{task_id}
+{task.id}
+
+## Code
+{task.code}
 
 ## Branch
 -
@@ -33,12 +53,90 @@ TASK_MD_TEMPLATE = """# {title}
 """
 
 
+TASK_TEMPLATE_FILENAME = "task-template.md"
+
+
+class _SafeFormatter(string.Formatter):
+    """``str.format``-style formatter that keeps unknown placeholders intact.
+
+    Missing variables / attributes (``KeyError``, ``AttributeError``,
+    ``IndexError``) are emitted as the literal ``{name}`` token rather
+    than raising. This lets custom templates introduce vars that aren't
+    populated yet without crashing folder creation.
+    """
+
+    class _Missing:
+        __slots__ = ("_name",)
+
+        def __init__(self, name: str) -> None:
+            self._name = name
+
+        def __format__(self, spec: str) -> str:  # noqa: D401 — formatter contract
+            return "{" + self._name + "}"
+
+    def get_field(self, field_name, args, kwargs):
+        try:
+            return super().get_field(field_name, args, kwargs)
+        except (KeyError, AttributeError, IndexError):
+            return self._Missing(field_name), field_name
+
+
 class TaskFolderManager:
     """Pure FS lifecycle for root-task folders."""
 
     def __init__(self, task_folder_root: Path, working_dir: Path):
         self.root = Path(task_folder_root)
         self.working_dir = Path(working_dir)
+
+    # ----------------------------------------------------------------- template
+
+    def _render_task_md(
+        self, title: str, task_id: int, code: Optional[str] = None
+    ) -> str:
+        """Render task.md content from a custom or default template.
+
+        Reads ``{root}/task-template.md`` if it exists and is non-empty;
+        otherwise falls back to :data:`TASK_MD_TEMPLATE`. The template is
+        re-read on every call so live edits propagate to the next folder
+        creation without restarting the server.
+
+        Variables: ``{task.title}``, ``{task.id}``, ``{task.code}``,
+        ``{date}``, ``{datetime}``. Missing placeholders keep their literal
+        ``{name}`` form rather than raising.
+        """
+        template = TASK_MD_TEMPLATE
+        try:
+            custom = self.root / TASK_TEMPLATE_FILENAME
+            if custom.is_file():
+                content = custom.read_text(encoding="utf-8")
+                if content.strip():
+                    template = content
+        except Exception:
+            logger.warning(
+                "_render_task_md: failed to read custom template, falling back",
+                exc_info=True,
+            )
+
+        now = datetime.now()
+        task_ns = SimpleNamespace(
+            title=title,
+            id=task_id,
+            code=code or "",
+        )
+        try:
+            return _SafeFormatter().format(
+                template,
+                task=task_ns,
+                date=now.strftime("%Y-%m-%d"),
+                datetime=now.isoformat(timespec="seconds"),
+            )
+        except Exception:
+            # Last-resort: if template has malformed format spec, return raw.
+            logger.warning(
+                "_render_task_md: format failed, returning raw template",
+                exc_info=True,
+            )
+            return template
 
     # ---------------------------------------------------------------- create
 
@@ -74,7 +172,7 @@ class TaskFolderManager:
             task_md = folder / "task.md"
             if not task_md.exists():
                 task_md.write_text(
-                    TASK_MD_TEMPLATE.format(title=title, task_id=task_id),
+                    self._render_task_md(title, task_id, code),
                     encoding="utf-8",
                 )
             else:

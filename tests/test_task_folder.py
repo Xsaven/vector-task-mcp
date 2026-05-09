@@ -54,7 +54,9 @@ class TestCreateFolder:
         assert "# My Feature" in content
         assert "## Vector ID" in content
         assert "42" in content
-        assert content == TASK_MD_TEMPLATE.format(title="My Feature", task_id=42)
+        # Default template now uses {task.title} / {task.id} variables; the
+        # rendered content must include the substituted values.
+        assert "FEAT-1" in content  # {task.code} substituted
 
     def test_idempotent_existing_folder_with_vector_id(
         self, mgr: TaskFolderManager, root: Path
@@ -120,6 +122,81 @@ class TestCreateFolder:
         # Existing folder + content preserved.
         assert on_review.is_dir()
         assert (on_review / "video.mp4").is_file()
+
+    def test_custom_template_used_when_present(
+        self, mgr: TaskFolderManager, root: Path
+    ):
+        # task-template.md at root → use it instead of the default.
+        custom = (
+            "# Custom: {task.title} ({task.code})\n"
+            "Vector: {task.id}\n"
+            "Created: {date}\n"
+        )
+        (root / "task-template.md").write_text(custom, encoding="utf-8")
+
+        ok = mgr.create_folder("CUST-1", "Custom Task", 777)
+
+        assert ok is True
+        content = (root / "CUST-1" / "task.md").read_text(encoding="utf-8")
+        assert "# Custom: Custom Task (CUST-1)" in content
+        assert "Vector: 777" in content
+        # date is YYYY-MM-DD; just check it looks like a date.
+        import re
+        assert re.search(r"Created: \d{4}-\d{2}-\d{2}", content)
+
+    def test_custom_template_with_quoted_unknown_vars(
+        self, mgr: TaskFolderManager, root: Path
+    ):
+        # Unknown placeholders MUST not crash; they stay as literal {name}.
+        custom = (
+            "# {task.title}\n"
+            "Code: {task.code}\n"
+            "Owner: {task.owner}\n"  # unknown — stays literal
+            "Future: {something.else}\n"
+        )
+        (root / "task-template.md").write_text(custom, encoding="utf-8")
+
+        ok = mgr.create_folder("CUST-2", "Resilient", 100)
+        assert ok is True
+
+        content = (root / "CUST-2" / "task.md").read_text(encoding="utf-8")
+        assert "# Resilient" in content
+        assert "Code: CUST-2" in content
+        assert "{task.owner}" in content
+        assert "{something.else}" in content
+
+    def test_custom_template_empty_falls_back_to_default(
+        self, mgr: TaskFolderManager, root: Path
+    ):
+        # An empty / whitespace-only template file must NOT cause an empty
+        # task.md — fall back to the built-in default.
+        (root / "task-template.md").write_text("   \n\n", encoding="utf-8")
+
+        ok = mgr.create_folder("CUST-3", "Default fallback", 111)
+        assert ok is True
+
+        content = (root / "CUST-3" / "task.md").read_text(encoding="utf-8")
+        assert "# Default fallback" in content
+        assert "## Vector ID" in content
+        assert "111" in content
+
+    def test_custom_template_re_read_each_time(
+        self, mgr: TaskFolderManager, root: Path
+    ):
+        # Templates are re-read on every create_folder so live edits work.
+        (root / "task-template.md").write_text(
+            "# v1: {task.title}\n", encoding="utf-8"
+        )
+        mgr.create_folder("CUST-4", "First", 1)
+        first = (root / "CUST-4" / "task.md").read_text(encoding="utf-8")
+        assert first.startswith("# v1: First")
+
+        (root / "task-template.md").write_text(
+            "# v2: {task.title}\n", encoding="utf-8"
+        )
+        mgr.create_folder("CUST-5", "Second", 2)
+        second = (root / "CUST-5" / "task.md").read_text(encoding="utf-8")
+        assert second.startswith("# v2: Second")
 
     def test_idempotent_when_orphan_archive_exists(
         self, mgr: TaskFolderManager, root: Path
