@@ -34,7 +34,15 @@ from mcp.server.fastmcp import FastMCP
 
 # Import our modules
 from src.models import Config
-from src.security import validate_working_dir, validate_task_folder, SecurityError, validate_task_list_params, validate_tags, validate_task_stats_params
+from src.security import (
+    validate_working_dir,
+    validate_task_folder,
+    validate_code,
+    SecurityError,
+    validate_task_list_params,
+    validate_tags,
+    validate_task_stats_params,
+)
 from src.task_store import TaskStore
 from src.normalization import TagNormalizer
 
@@ -1906,6 +1914,21 @@ NEVER update parent task status. System propagates automatically."""
                     "message": "Provide exactly one of task_id or code",
                 }
 
+            # By-code branch: validate the user-supplied code BEFORE handing it
+            # to the filesystem manager — prevents path traversal via `..`,
+            # absolute paths, null bytes, lowercase/non-conforming codes, etc.
+            # Re-uses the same regex (^[A-Z]+-\d+$, max 32 chars) that
+            # validate_task_params applies at create.
+            if code is not None:
+                try:
+                    code = validate_code(code)
+                except SecurityError as e:
+                    return {
+                        "success": False,
+                        "error": "Invalid parameter",
+                        "message": str(e),
+                    }
+
             await task_store._ensure_db_initialized_async()
 
             if task_id is not None:
@@ -1934,7 +1957,17 @@ NEVER update parent task status. System propagates automatically."""
                         "error": "Invalid task",
                         "message": "Task has no code — folder cannot be resolved",
                     }
-                resolved_code = task.code
+                # Defense-in-depth: re-validate the stored code in case of
+                # legacy rows or future DB drift. The regex is deterministic,
+                # so this is a cheap whitelist re-check, not a real round-trip.
+                try:
+                    resolved_code = validate_code(task.code)
+                except SecurityError:
+                    return {
+                        "success": False,
+                        "error": "Invalid task",
+                        "message": "Stored task code does not pass validation",
+                    }
             else:
                 resolved_code = code
 

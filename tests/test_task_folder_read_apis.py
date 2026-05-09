@@ -366,6 +366,60 @@ class TestTaskFolderFilesTool:
         assert result["success"] is True
         assert not Path(result["folder_path"]).is_absolute()
 
+    # ------------------------------------------------------------------
+    # Path-traversal hardening (#217 — validate_code at the public boundary)
+    # ------------------------------------------------------------------
+
+    def test_path_traversal_double_dot_rejected(
+        self, monkeypatch, working_dir: Path, folder_root: Path
+    ):
+        mcp = _build_server_with_folder(monkeypatch, working_dir, folder_root)
+        result = _call_tool(mcp, "task_folder_files", {"code": ".."})
+        assert result["success"] is False
+        msg = result["message"].lower()
+        # Error message must come from validate_code (mentions format/PREFIX).
+        assert "format" in msg or "prefix" in msg
+
+    def test_path_traversal_relative_rejected(
+        self, monkeypatch, working_dir: Path, folder_root: Path
+    ):
+        mcp = _build_server_with_folder(monkeypatch, working_dir, folder_root)
+        result = _call_tool(mcp, "task_folder_files", {"code": "../../etc"})
+        assert result["success"] is False
+
+    def test_lowercase_code_rejected(
+        self, monkeypatch, working_dir: Path, folder_root: Path
+    ):
+        mcp = _build_server_with_folder(monkeypatch, working_dir, folder_root)
+        result = _call_tool(mcp, "task_folder_files", {"code": "feat-1"})
+        assert result["success"] is False
+
+    def test_empty_string_code_rejected(
+        self, monkeypatch, working_dir: Path, folder_root: Path
+    ):
+        # Empty string is not None, so the XOR check allows it through;
+        # validate_code rejects with "code cannot be empty".
+        mcp = _build_server_with_folder(monkeypatch, working_dir, folder_root)
+        result = _call_tool(mcp, "task_folder_files", {"code": ""})
+        assert result["success"] is False
+
+    def test_code_with_null_byte_rejected(
+        self, monkeypatch, working_dir: Path, folder_root: Path
+    ):
+        mcp = _build_server_with_folder(monkeypatch, working_dir, folder_root)
+        result = _call_tool(mcp, "task_folder_files", {"code": "FEAT-1\x00x"})
+        assert result["success"] is False
+
+    def test_overly_long_code_rejected(
+        self, monkeypatch, working_dir: Path, folder_root: Path
+    ):
+        mcp = _build_server_with_folder(monkeypatch, working_dir, folder_root)
+        result = _call_tool(mcp, "task_folder_files", {"code": "A" * 100 + "-1"})
+        assert result["success"] is False
+        msg = result["message"].lower()
+        # validate_code reports max-length explicitly.
+        assert "32" in msg or "length" in msg
+
 
 # =============================================================================
 # Version + manifest
