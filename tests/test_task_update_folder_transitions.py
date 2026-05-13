@@ -89,8 +89,12 @@ class TestUpdateTransitionsFeatureOn:
             title="B", content="x", tags=["feature"]
         )
         code = result["code"]
-        store_with_folder.update_task(task_id=result["task_id"], status="in_progress")
+        # Add side-content so folder is NOT empty-template-only — the
+        # post-1.8.6 rule would otherwise DELETE an empty folder at the
+        # completed transition instead of renaming.
+        (folder_root / code / "notes.md").write_text("note", encoding="utf-8")
 
+        store_with_folder.update_task(task_id=result["task_id"], status="in_progress")
         store_with_folder.update_task(task_id=result["task_id"], status="completed")
 
         assert not (folder_root / code).exists()
@@ -103,6 +107,8 @@ class TestUpdateTransitionsFeatureOn:
             title="C", content="x", tags=["feature"]
         )
         code = result["code"]
+        # Marker file keeps the folder out of the empty-delete fast-path.
+        (folder_root / code / "notes.md").write_text("note", encoding="utf-8")
         _walk_to(store_with_folder, result["task_id"], "completed")
         # Source: {code}-on-review (after rename_on_completed).
         assert (folder_root / f"{code}-on-review").is_dir()
@@ -123,6 +129,7 @@ class TestUpdateTransitionsFeatureOn:
             title="D", content="x", tags=["feature"]
         )
         code = result["code"]
+        (folder_root / code / "notes.md").write_text("note", encoding="utf-8")
         _walk_to(store_with_folder, result["task_id"], "tested")
         store_with_folder.update_task(task_id=result["task_id"], status="done")
         assert (folder_root / "Archive" / code).is_dir()
@@ -134,6 +141,7 @@ class TestUpdateTransitionsFeatureOn:
             title="E", content="x", tags=["feature"]
         )
         code = result["code"]
+        (folder_root / code / "notes.md").write_text("note", encoding="utf-8")
         _walk_to(store_with_folder, result["task_id"], "validated")
         store_with_folder.update_task(task_id=result["task_id"], status="done")
         assert (folder_root / "Archive" / code).is_dir()
@@ -145,6 +153,7 @@ class TestUpdateTransitionsFeatureOn:
             title="F", content="x", tags=["feature"]
         )
         code = result["code"]
+        (folder_root / code / "notes.md").write_text("note", encoding="utf-8")
         _walk_to(store_with_folder, result["task_id"], "completed")
         assert (folder_root / f"{code}-on-review").is_dir()
 
@@ -161,6 +170,7 @@ class TestUpdateTransitionsFeatureOn:
             title="G", content="x", tags=["feature"]
         )
         code = result["code"]
+        (folder_root / code / "notes.md").write_text("note", encoding="utf-8")
         _walk_to(store_with_folder, result["task_id"], "completed")
 
         store_with_folder.update_task(task_id=result["task_id"], status="tested")
@@ -176,6 +186,7 @@ class TestUpdateTransitionsFeatureOn:
             title="H", content="x", tags=["feature"]
         )
         code = result["code"]
+        (folder_root / code / "notes.md").write_text("note", encoding="utf-8")
         _walk_to(store_with_folder, result["task_id"], "completed")
 
         store_with_folder.update_task(task_id=result["task_id"], status="tested")

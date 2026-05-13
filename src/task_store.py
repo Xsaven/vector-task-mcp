@@ -1633,6 +1633,13 @@ class TaskStore:
         Best-effort: never raises; logs and returns silently on any FS error.
         No-op when ``code`` is falsy, when ``folder_mgr`` is disabled, or when
         no contributing root task references the code.
+
+        Empty-template optimisation: when the aggregate moves the folder to
+        a non-active position (``on-review`` or ``archive``) AND the folder
+        contains only the unmodified rendered template, delete the folder
+        outright instead of renaming it. Prevents accumulating empty
+        ``-on-review/`` and ``Archive/`` shells for tasks where no work
+        product was added.
         """
         if not code or self.folder_mgr is None:
             return
@@ -1640,6 +1647,23 @@ class TaskStore:
             target = self._aggregate_position_for_code(conn, code)
             if target is None:
                 return
+
+            if target in ("on-review", "archive"):
+                # Try each task in the code group as a possible "owner" of
+                # the rendered template; if any matches, the folder holds
+                # nothing user-added.
+                rows = conn.execute(
+                    "SELECT id, title FROM tasks "
+                    "WHERE parent_id IS NULL AND code = ? "
+                    "ORDER BY id LIMIT 20",
+                    (code,),
+                ).fetchall()
+                for owner_id, owner_title in rows:
+                    if self.folder_mgr.delete_if_empty_template(
+                        code, owner_title, owner_id
+                    ):
+                        return  # deleted; nothing more to do
+
             self.folder_mgr.sync_folder_position(code, target)
         except Exception as e:
             logger.warning(

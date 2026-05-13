@@ -140,11 +140,14 @@ class TestGetTaskFoldersSummary:
         assert summary == []
 
     def test_status_suffix_on_review(
-        self, store_with_folder: TaskStore
+        self, store_with_folder: TaskStore, folder_root: Path
     ):
         result = store_with_folder.create_task(
             title="ToReview", content="x", tags=["feature"]
         )
+        # Side-content keeps folder alive past completed (1.8.6 deletes
+        # empty-template-only folders rather than renaming them).
+        (folder_root / result["code"] / "notes.md").write_text("n", encoding="utf-8")
         store_with_folder.update_task(task_id=result["task_id"], status="in_progress")
         store_with_folder.update_task(task_id=result["task_id"], status="completed")
 
@@ -158,6 +161,7 @@ class TestGetTaskFoldersSummary:
         result = store_with_folder.create_task(
             title="ToArchive", content="x", tags=["feature"]
         )
+        (folder_root / result["code"] / "notes.md").write_text("n", encoding="utf-8")
         # Walk through full lifecycle to done.
         for s in ("in_progress", "completed", "tested", "validated", "done"):
             store_with_folder.update_task(task_id=result["task_id"], status=s)

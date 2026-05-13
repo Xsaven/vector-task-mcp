@@ -472,14 +472,14 @@ class TestTaskFolderFilesTool:
 # =============================================================================
 
 class TestVersionBump:
-    def test_pyproject_version_is_1_8_5(self):
+    def test_pyproject_version_is_1_8_6(self):
         pyproject = Path(__file__).parent.parent / "pyproject.toml"
         text = pyproject.read_text(encoding="utf-8")
         # Match exactly the project version line, not any incidental occurrence.
         import re
         m = re.search(r'^version\s*=\s*"([^"]+)"', text, re.MULTILINE)
         assert m is not None, "version line not found in pyproject.toml"
-        assert m.group(1) == "1.8.5", f"expected 1.8.5, got {m.group(1)}"
+        assert m.group(1) == "1.8.6", f"expected 1.8.6, got {m.group(1)}"
 
 
 # =============================================================================

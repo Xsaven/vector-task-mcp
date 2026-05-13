@@ -353,6 +353,54 @@ class TaskFolderManager:
             logger.warning("rename_on_done failed for code=%r", code, exc_info=True)
             return False
 
+    def delete_if_empty_template(
+        self, code: str, title: str, task_id: int
+    ) -> bool:
+        """Delete the folder when it contains only the unmodified template.
+
+        "Empty" here means:
+        - The folder exists at SOME lifecycle position (active / on-review /
+          Archive).
+        - It contains exactly ONE file (recursive), and that file is
+          ``task.md``.
+        - The content of ``task.md`` (after :meth:`str.strip`) matches the
+          rendered default/custom template for the supplied ``title`` /
+          ``task_id`` / ``code`` — i.e. nothing has been added or edited
+          since folder creation.
+
+        When all three hold, the folder is removed and ``True`` is returned.
+        Otherwise returns ``False`` and the folder is left untouched.
+
+        Used by the aggregate sync step in ``task_store`` to skip pointless
+        ``-on-review`` / ``Archive/`` renames for folders that hold no work
+        product.
+        """
+        try:
+            folder = self._resolve_existing_folder(code)
+            if folder is None:
+                return False
+
+            files = [p for p in folder.rglob("*") if p.is_file()]
+            if len(files) != 1:
+                return False
+
+            task_md = folder / "task.md"
+            if not task_md.is_file() or files[0].resolve() != task_md.resolve():
+                return False
+
+            actual = task_md.read_text(encoding="utf-8").strip()
+            expected = self._render_task_md(title, task_id, code).strip()
+            if actual != expected:
+                return False
+
+            shutil.rmtree(folder)
+            return True
+        except Exception:
+            logger.warning(
+                "delete_if_empty_template failed for code=%r", code, exc_info=True
+            )
+            return False
+
     def sync_folder_position(self, code: str, target_position: str) -> bool:
         """Move the existing folder for ``code`` to ``target_position``.
 

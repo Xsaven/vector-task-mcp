@@ -108,6 +108,9 @@ class TestOnReviewRename:
             title="C", content="x", tags=["feature"]
         )
         old_code = result["code"]
+        # Marker file keeps the folder alive past the completed transition
+        # (empty-template folders are deleted as of 1.8.6).
+        (folder_root / old_code / "notes.md").write_text("note", encoding="utf-8")
         store_with_folder.update_task(task_id=result["task_id"], status="in_progress")
         store_with_folder.update_task(task_id=result["task_id"], status="completed")
         assert (folder_root / f"{old_code}-on-review").is_dir()
@@ -130,6 +133,7 @@ class TestArchiveRename:
             title="D", content="x", tags=["feature"]
         )
         old_code = result["code"]
+        (folder_root / old_code / "notes.md").write_text("note", encoding="utf-8")
         for s in ("in_progress", "completed", "tested", "validated", "done"):
             store_with_folder.update_task(task_id=result["task_id"], status=s)
         assert (folder_root / "Archive" / old_code).is_dir()

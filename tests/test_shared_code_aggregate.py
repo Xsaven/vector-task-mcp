@@ -72,6 +72,8 @@ class TestSingleTaskBaseline:
             title="Solo", content="x", tags=["feature"], code="SOLO-1"
         )
         tid = result["task_id"]
+        # Side-content keeps folder alive past empty-delete (1.8.6).
+        (folder_root / "SOLO-1" / "notes.md").write_text("note", encoding="utf-8")
 
         # pending → active
         assert (folder_root / "SOLO-1").is_dir()
@@ -98,6 +100,7 @@ class TestNewTaskRevertsFolder:
         a = store_with_folder.create_task(
             title="A", content="x", tags=["refactor"], code="REFAC-1"
         )
+        (folder_root / "REFAC-1" / "notes.md").write_text("note", encoding="utf-8")
         for s in ("in_progress", "completed", "tested", "validated", "done"):
             store_with_folder.update_task(task_id=a["task_id"], status=s)
         assert (folder_root / "Archive" / "REFAC-1").is_dir()
@@ -119,6 +122,7 @@ class TestNewTaskRevertsFolder:
         a = store_with_folder.create_task(
             title="A", content="x", tags=["feature"], code="FEAT-100"
         )
+        (folder_root / "FEAT-100" / "notes.md").write_text("note", encoding="utf-8")
         store_with_folder.update_task(task_id=a["task_id"], status="in_progress")
         store_with_folder.update_task(task_id=a["task_id"], status="completed")
         assert (folder_root / "FEAT-100-on-review").is_dir()
@@ -163,6 +167,8 @@ class TestSharedCodeStatusTransitions:
         b = store_with_folder.create_task(
             title="B", content="y", tags=["feature"], code="DUO-2"
         )
+        # Side-content prevents empty-template delete (1.8.6).
+        (folder_root / "DUO-2" / "notes.md").write_text("note", encoding="utf-8")
 
         store_with_folder.update_task(task_id=a["task_id"], status="in_progress")
         store_with_folder.update_task(task_id=a["task_id"], status="completed")
@@ -182,6 +188,7 @@ class TestSharedCodeStatusTransitions:
         b = store_with_folder.create_task(
             title="B", content="y", tags=["feature"], code="DUO-3"
         )
+        (folder_root / "DUO-3" / "notes.md").write_text("note", encoding="utf-8")
 
         for tid in (a["task_id"], b["task_id"]):
             for s in ("in_progress", "completed", "tested", "validated", "done"):
@@ -201,6 +208,7 @@ class TestSharedCodeStatusTransitions:
         b = store_with_folder.create_task(
             title="B", content="y", tags=["feature"], code="DUO-4"
         )
+        (folder_root / "DUO-4" / "notes.md").write_text("note", encoding="utf-8")
         for tid in (a["task_id"], b["task_id"]):
             for s in ("in_progress", "completed", "tested", "validated", "done"):
                 store_with_folder.update_task(task_id=tid, status=s)
@@ -233,6 +241,8 @@ class TestCodeChangeAcrossGroups:
         a = store_with_folder.create_task(
             title="A", content="x", tags=["feature"], code="ALPHA-1"
         )
+        # Side-content keeps folder alive past the empty-delete fast-path.
+        (folder_root / "ALPHA-1" / "notes.md").write_text("note", encoding="utf-8")
         for s in ("in_progress", "completed", "tested", "validated", "done"):
             store_with_folder.update_task(task_id=a["task_id"], status=s)
         assert (folder_root / "Archive" / "ALPHA-1").is_dir()
@@ -279,6 +289,8 @@ class TestIgnoredStatuses:
         a = store_with_folder.create_task(
             title="A", content="x", tags=["feature"], code="MIX-1"
         )
+        # Side-content keeps folder alive past empty-delete (1.8.6).
+        (folder_root / "MIX-1" / "notes.md").write_text("note", encoding="utf-8")
         # Walk A to done so folder is in Archive.
         for s in ("in_progress", "completed", "tested", "validated", "done"):
             store_with_folder.update_task(task_id=a["task_id"], status=s)
