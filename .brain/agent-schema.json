@@ -72,20 +72,20 @@
         },
         "agentReference": {
             "type": "string",
-            "description": "Reference to a compiled agent. Available agents: agent-master, commit-master, database-master, documentation-master, explore-master, prompt-master, python-mcp-master, script-master, security-audit-master, testing-master, vector-master, web-research-master",
-            "pattern": "^(agent\\-master|commit\\-master|database\\-master|documentation\\-master|explore\\-master|prompt\\-master|python\\-mcp\\-master|script\\-master|security\\-audit\\-master|testing\\-master|vector\\-master|web\\-research\\-master)$",
+            "description": "Reference to a compiled agent. Available agents: agent-master, database-master, documentation-master, explore-master, prompt-master, python-mcp-master, script-master, security-audit-master, testing-master, vector-master, web-research-master",
+            "pattern": "^(agent\\-master|database\\-master|documentation\\-master|explore\\-master|prompt\\-master|python\\-mcp\\-master|script\\-master|security\\-audit\\-master|testing\\-master|vector\\-master|web\\-research\\-master)$",
             "examples": [
                 "agent-master",
-                "commit-master",
                 "database-master",
                 "documentation-master",
-                "explore-master"
+                "explore-master",
+                "prompt-master"
             ]
         },
         "commandReference": {
             "type": "string",
-            "description": "Reference to a compiled command. Available commands: async-command, brainstorm-command, sync-command, test-validate-command, validate-command, do-command, work-command, init-agents-command, init-brain-command, init-task-command, init-vector-command, cleanup-command, get-command, list-command, search-command, stats-command, store-command, async-command, brainstorm-command, create-command, decompose-command, list-command, status-command, sync-command, validate-command, validate-sync-command",
-            "pattern": "^(async\\-command|brainstorm\\-command|sync\\-command|test\\-validate\\-command|validate\\-command|do\\-command|work\\-command|init\\-agents\\-command|init\\-brain\\-command|init\\-task\\-command|init\\-vector\\-command|cleanup\\-command|get\\-command|list\\-command|search\\-command|stats\\-command|store\\-command|async\\-command|brainstorm\\-command|create\\-command|decompose\\-command|list\\-command|status\\-command|sync\\-command|validate\\-command|validate\\-sync\\-command)$",
+            "description": "Reference to a compiled command. Available commands: async-command, brainstorm-command, sync-command, test-validate-command, validate-command, do-command, work-command, exe-command, init-agents-command, init-brain-command, init-task-command, init-vector-command, cleanup-command, get-command, list-command, search-command, stats-command, store-command, async-command, brainstorm-command, create-command, decompose-command, list-command, status-command, sync-command, validate-command, validate-sync-command",
+            "pattern": "^(async\\-command|brainstorm\\-command|sync\\-command|test\\-validate\\-command|validate\\-command|do\\-command|work\\-command|exe\\-command|init\\-agents\\-command|init\\-brain\\-command|init\\-task\\-command|init\\-vector\\-command|cleanup\\-command|get\\-command|list\\-command|search\\-command|stats\\-command|store\\-command|async\\-command|brainstorm\\-command|create\\-command|decompose\\-command|list\\-command|status\\-command|sync\\-command|validate\\-command|validate\\-sync\\-command)$",
             "examples": [
                 "async-command",
                 "brainstorm-command",
@@ -109,9 +109,10 @@
                 "gpt-5.2-codex",
                 "gpt-5.2-codex-mini",
                 "gpt-5.2",
+                "gemini-3.1-pro",
+                "gemini-3.1-pro-preview",
+                "gemini-3-flash",
                 "gemini-2.5-pro",
-                "gemini-2.5-flash",
-                "gemini-2.5-flash-lite",
                 "qwen3-coder-plus",
                 "openai/gpt-oss-20b",
                 "qwen/qwen3-coder-30b",
@@ -134,7 +135,7 @@
                 "meta-llama/llama-guard-4-12b",
                 "openai/gpt-oss-120b",
                 "zai-coding-plan/glm-4.7",
-                "zai-coding-plan/glm-5.0",
+                "zai-coding-plan/glm-5",
                 "opencode/glm-4.7-free",
                 "opencode/big-pickle",
                 "opencode/grok-code",
@@ -143,7 +144,11 @@
                 "anthropic/claude-opus-4-5",
                 "anthropic/claude-sonnet-4-5",
                 "anthropic/claude-haiku-4-5",
-                "lmstudio/qwen/qwen3-coder-30b",
+                "lmstudio/qwen/qwen3.5-35b-a3b",
+                "lmstudio/qwen/qwen3.6-35b-a3b",
+                "lmstudio/zai-org/glm-4.6v-flash",
+                "lmstudio/zai-org/glm-4.7-flash",
+                "lmstudio/google/gemma-4-31b",
                 "lmstudio/deepseek-coder-v2-lite-instruct",
                 "alibaba/qwen3-coder-480b-a35b-instruct",
                 "google/gemini-3-pro-preview",
@@ -305,6 +310,10 @@
                     "type": "string",
                     "description": "Model constant: PRO (Gemini CLI)"
                 },
+                "$_model.PRO_PREV": {
+                    "type": "string",
+                    "description": "Model constant: PRO_PREV (Gemini CLI)"
+                },
                 "$_model.FLASH": {
                     "type": "string",
                     "description": "Model constant: FLASH (Gemini CLI)"
@@ -417,6 +426,22 @@
                     "type": "string",
                     "description": "Model constant: Q3CP (OpenCode CLI)"
                 },
+                "$_model.Q36CP": {
+                    "type": "string",
+                    "description": "Model constant: Q36CP (OpenCode CLI)"
+                },
+                "$_model.GLM46_FLASH": {
+                    "type": "string",
+                    "description": "Model constant: GLM46_FLASH (OpenCode CLI)"
+                },
+                "$_model.GLM47_FLASH": {
+                    "type": "string",
+                    "description": "Model constant: GLM47_FLASH (OpenCode CLI)"
+                },
+                "$_model.GEMMA4": {
+                    "type": "string",
+                    "description": "Model constant: GEMMA4 (OpenCode CLI)"
+                },
                 "$_model.DSCV2LI": {
                     "type": "string",
                     "description": "Model constant: DSCV2LI (OpenCode CLI)"
@@ -514,6 +539,7 @@
                 "$_model.GPT52_CODEX_MINI",
                 "$_model.GPT52",
                 "$_model.PRO",
+                "$_model.PRO_PREV",
                 "$_model.FLASH",
                 "$_model.FLASH_LITE",
                 "$_model.CODER",
@@ -542,6 +568,10 @@
                 "$_model.BIG_PICKLE_FREE",
                 "$_model.GROK_CODE_FREE",
                 "$_model.Q3CP",
+                "$_model.Q36CP",
+                "$_model.GLM46_FLASH",
+                "$_model.GLM47_FLASH",
+                "$_model.GEMMA4",
                 "$_model.DSCV2LI",
                 "$_model.QWEN3_CODER",
                 "$_model.GO_GEMINI3_PRO",
@@ -598,6 +628,7 @@
                 "$_model.GPT52_CODEX_MINI",
                 "$_model.GPT52",
                 "$_model.PRO",
+                "$_model.PRO_PREV",
                 "$_model.FLASH",
                 "$_model.FLASH_LITE",
                 "$_model.CODER",
@@ -626,6 +657,10 @@
                 "$_model.BIG_PICKLE_FREE",
                 "$_model.GROK_CODE_FREE",
                 "$_model.Q3CP",
+                "$_model.Q36CP",
+                "$_model.GLM46_FLASH",
+                "$_model.GLM47_FLASH",
+                "$_model.GEMMA4",
                 "$_model.DSCV2LI",
                 "$_model.QWEN3_CODER",
                 "$_model.GO_GEMINI3_PRO",
@@ -650,10 +685,6 @@
                 "AGENTS_AGENT_MASTER_DISABLE": {
                     "type": "string",
                     "description": "Disable AgentMaster from compilation (true/false)"
-                },
-                "AGENTS_COMMIT_MASTER_DISABLE": {
-                    "type": "string",
-                    "description": "Disable CommitMaster from compilation (true/false)"
                 },
                 "AGENTS_DATABASE_MASTER_DISABLE": {
                     "type": "string",
@@ -799,6 +830,34 @@
                     "type": "string",
                     "description": "Model override for Brain"
                 },
+                "BRAIN_PROMPT_DSL_GENERATION_NATIVE_SKILL_GUIDELINE_0": {
+                    "type": "string",
+                    "description": "Custom guideline #0 for BrainPromptDslGenerationNativeSkill"
+                },
+                "BRAIN_PROMPT_DSL_GENERATION_NATIVE_SKILL_GUIDELINE_1": {
+                    "type": "string",
+                    "description": "Custom guideline #1 for BrainPromptDslGenerationNativeSkill"
+                },
+                "BRAIN_PROMPT_DSL_GENERATION_NATIVE_SKILL_GUIDELINE_2": {
+                    "type": "string",
+                    "description": "Custom guideline #2 for BrainPromptDslGenerationNativeSkill"
+                },
+                "BRAIN_PROMPT_DSL_GENERATION_NATIVE_SKILL_MODEL": {
+                    "type": "string",
+                    "description": "Model override for BrainPromptDslGenerationNativeSkill"
+                },
+                "BRAIN_PROMPT_DSL_GENERATION_NATIVE_SKILL_RULE_0": {
+                    "type": "string",
+                    "description": "Custom CRITICAL rule #0 for BrainPromptDslGenerationNativeSkill"
+                },
+                "BRAIN_PROMPT_DSL_GENERATION_NATIVE_SKILL_RULE_1": {
+                    "type": "string",
+                    "description": "Custom CRITICAL rule #1 for BrainPromptDslGenerationNativeSkill"
+                },
+                "BRAIN_PROMPT_DSL_GENERATION_NATIVE_SKILL_RULE_2": {
+                    "type": "string",
+                    "description": "Custom CRITICAL rule #2 for BrainPromptDslGenerationNativeSkill"
+                },
                 "BRAIN_RULE_0": {
                     "type": "string",
                     "description": "Custom CRITICAL rule #0 for Brain"
@@ -843,6 +902,34 @@
                     "type": "string",
                     "description": "Custom CRITICAL rule #2 for CleanupCommand"
                 },
+                "CLIENT_FORMAT_TRIAGE_SKILL_GUIDELINE_0": {
+                    "type": "string",
+                    "description": "Custom guideline #0 for ClientFormatTriageSkill"
+                },
+                "CLIENT_FORMAT_TRIAGE_SKILL_GUIDELINE_1": {
+                    "type": "string",
+                    "description": "Custom guideline #1 for ClientFormatTriageSkill"
+                },
+                "CLIENT_FORMAT_TRIAGE_SKILL_GUIDELINE_2": {
+                    "type": "string",
+                    "description": "Custom guideline #2 for ClientFormatTriageSkill"
+                },
+                "CLIENT_FORMAT_TRIAGE_SKILL_MODEL": {
+                    "type": "string",
+                    "description": "Model override for ClientFormatTriageSkill"
+                },
+                "CLIENT_FORMAT_TRIAGE_SKILL_RULE_0": {
+                    "type": "string",
+                    "description": "Custom CRITICAL rule #0 for ClientFormatTriageSkill"
+                },
+                "CLIENT_FORMAT_TRIAGE_SKILL_RULE_1": {
+                    "type": "string",
+                    "description": "Custom CRITICAL rule #1 for ClientFormatTriageSkill"
+                },
+                "CLIENT_FORMAT_TRIAGE_SKILL_RULE_2": {
+                    "type": "string",
+                    "description": "Custom CRITICAL rule #2 for ClientFormatTriageSkill"
+                },
                 "CODEX_MASTER_MODEL": {
                     "type": "string",
                     "description": "Default model for Codex CLI agents"
@@ -870,6 +957,10 @@
                 "COMMANDS_DO_COMMAND_DISABLE": {
                     "type": "string",
                     "description": "Disable DoCommand from compilation (true/false)"
+                },
+                "COMMANDS_EXE_COMMAND_DISABLE": {
+                    "type": "string",
+                    "description": "Disable ExeCommand from compilation (true/false)"
                 },
                 "COMMANDS_GET_COMMAND_DISABLE": {
                     "type": "string",
@@ -930,34 +1021,6 @@
                 "COMMANDS_WORK_COMMAND_DISABLE": {
                     "type": "string",
                     "description": "Disable WorkCommand from compilation (true/false)"
-                },
-                "COMMIT_MASTER_GUIDELINE_0": {
-                    "type": "string",
-                    "description": "Custom guideline #0 for CommitMaster"
-                },
-                "COMMIT_MASTER_GUIDELINE_1": {
-                    "type": "string",
-                    "description": "Custom guideline #1 for CommitMaster"
-                },
-                "COMMIT_MASTER_GUIDELINE_2": {
-                    "type": "string",
-                    "description": "Custom guideline #2 for CommitMaster"
-                },
-                "COMMIT_MASTER_MODEL": {
-                    "type": "string",
-                    "description": "Model override for CommitMaster"
-                },
-                "COMMIT_MASTER_RULE_0": {
-                    "type": "string",
-                    "description": "Custom CRITICAL rule #0 for CommitMaster"
-                },
-                "COMMIT_MASTER_RULE_1": {
-                    "type": "string",
-                    "description": "Custom CRITICAL rule #1 for CommitMaster"
-                },
-                "COMMIT_MASTER_RULE_2": {
-                    "type": "string",
-                    "description": "Custom CRITICAL rule #2 for CommitMaster"
                 },
                 "CONTEXT7_MCP_GUIDELINE_0": {
                     "type": "string",
@@ -1071,6 +1134,34 @@
                     "type": "string",
                     "description": "Custom CRITICAL rule #2 for DecomposeCommand"
                 },
+                "DOCS_TRUTH_SYNC_SKILL_GUIDELINE_0": {
+                    "type": "string",
+                    "description": "Custom guideline #0 for DocsTruthSyncSkill"
+                },
+                "DOCS_TRUTH_SYNC_SKILL_GUIDELINE_1": {
+                    "type": "string",
+                    "description": "Custom guideline #1 for DocsTruthSyncSkill"
+                },
+                "DOCS_TRUTH_SYNC_SKILL_GUIDELINE_2": {
+                    "type": "string",
+                    "description": "Custom guideline #2 for DocsTruthSyncSkill"
+                },
+                "DOCS_TRUTH_SYNC_SKILL_MODEL": {
+                    "type": "string",
+                    "description": "Model override for DocsTruthSyncSkill"
+                },
+                "DOCS_TRUTH_SYNC_SKILL_RULE_0": {
+                    "type": "string",
+                    "description": "Custom CRITICAL rule #0 for DocsTruthSyncSkill"
+                },
+                "DOCS_TRUTH_SYNC_SKILL_RULE_1": {
+                    "type": "string",
+                    "description": "Custom CRITICAL rule #1 for DocsTruthSyncSkill"
+                },
+                "DOCS_TRUTH_SYNC_SKILL_RULE_2": {
+                    "type": "string",
+                    "description": "Custom CRITICAL rule #2 for DocsTruthSyncSkill"
+                },
                 "DOCUMENTATION_MASTER_GUIDELINE_0": {
                     "type": "string",
                     "description": "Custom guideline #0 for DocumentationMaster"
@@ -1126,6 +1217,62 @@
                 "DO_COMMAND_RULE_2": {
                     "type": "string",
                     "description": "Custom CRITICAL rule #2 for DoCommand"
+                },
+                "EVIDENCE_PACK_BUILDER_SKILL_GUIDELINE_0": {
+                    "type": "string",
+                    "description": "Custom guideline #0 for EvidencePackBuilderSkill"
+                },
+                "EVIDENCE_PACK_BUILDER_SKILL_GUIDELINE_1": {
+                    "type": "string",
+                    "description": "Custom guideline #1 for EvidencePackBuilderSkill"
+                },
+                "EVIDENCE_PACK_BUILDER_SKILL_GUIDELINE_2": {
+                    "type": "string",
+                    "description": "Custom guideline #2 for EvidencePackBuilderSkill"
+                },
+                "EVIDENCE_PACK_BUILDER_SKILL_MODEL": {
+                    "type": "string",
+                    "description": "Model override for EvidencePackBuilderSkill"
+                },
+                "EVIDENCE_PACK_BUILDER_SKILL_RULE_0": {
+                    "type": "string",
+                    "description": "Custom CRITICAL rule #0 for EvidencePackBuilderSkill"
+                },
+                "EVIDENCE_PACK_BUILDER_SKILL_RULE_1": {
+                    "type": "string",
+                    "description": "Custom CRITICAL rule #1 for EvidencePackBuilderSkill"
+                },
+                "EVIDENCE_PACK_BUILDER_SKILL_RULE_2": {
+                    "type": "string",
+                    "description": "Custom CRITICAL rule #2 for EvidencePackBuilderSkill"
+                },
+                "EXE_COMMAND_GUIDELINE_0": {
+                    "type": "string",
+                    "description": "Custom guideline #0 for ExeCommand"
+                },
+                "EXE_COMMAND_GUIDELINE_1": {
+                    "type": "string",
+                    "description": "Custom guideline #1 for ExeCommand"
+                },
+                "EXE_COMMAND_GUIDELINE_2": {
+                    "type": "string",
+                    "description": "Custom guideline #2 for ExeCommand"
+                },
+                "EXE_COMMAND_MODEL": {
+                    "type": "string",
+                    "description": "Model override for ExeCommand"
+                },
+                "EXE_COMMAND_RULE_0": {
+                    "type": "string",
+                    "description": "Custom CRITICAL rule #0 for ExeCommand"
+                },
+                "EXE_COMMAND_RULE_1": {
+                    "type": "string",
+                    "description": "Custom CRITICAL rule #1 for ExeCommand"
+                },
+                "EXE_COMMAND_RULE_2": {
+                    "type": "string",
+                    "description": "Custom CRITICAL rule #2 for ExeCommand"
                 },
                 "EXPLORE_MASTER_GUIDELINE_0": {
                     "type": "string",
@@ -1190,6 +1337,34 @@
                 "GROQ_MASTER_MODEL": {
                     "type": "string",
                     "description": "Default model for Groq CLI agents"
+                },
+                "HEALTH_CHECK_SKILL_GUIDELINE_0": {
+                    "type": "string",
+                    "description": "Custom guideline #0 for HealthCheckSkill"
+                },
+                "HEALTH_CHECK_SKILL_GUIDELINE_1": {
+                    "type": "string",
+                    "description": "Custom guideline #1 for HealthCheckSkill"
+                },
+                "HEALTH_CHECK_SKILL_GUIDELINE_2": {
+                    "type": "string",
+                    "description": "Custom guideline #2 for HealthCheckSkill"
+                },
+                "HEALTH_CHECK_SKILL_MODEL": {
+                    "type": "string",
+                    "description": "Model override for HealthCheckSkill"
+                },
+                "HEALTH_CHECK_SKILL_RULE_0": {
+                    "type": "string",
+                    "description": "Custom CRITICAL rule #0 for HealthCheckSkill"
+                },
+                "HEALTH_CHECK_SKILL_RULE_1": {
+                    "type": "string",
+                    "description": "Custom CRITICAL rule #1 for HealthCheckSkill"
+                },
+                "HEALTH_CHECK_SKILL_RULE_2": {
+                    "type": "string",
+                    "description": "Custom CRITICAL rule #2 for HealthCheckSkill"
                 },
                 "INIT_AGENTS_COMMAND_GUIDELINE_0": {
                     "type": "string",
@@ -1363,6 +1538,34 @@
                     "type": "string",
                     "description": "Default model for OpenRouter CLI agents"
                 },
+                "PROMPT_GENERATION_SKILL_GUIDELINE_0": {
+                    "type": "string",
+                    "description": "Custom guideline #0 for PromptGenerationSkill"
+                },
+                "PROMPT_GENERATION_SKILL_GUIDELINE_1": {
+                    "type": "string",
+                    "description": "Custom guideline #1 for PromptGenerationSkill"
+                },
+                "PROMPT_GENERATION_SKILL_GUIDELINE_2": {
+                    "type": "string",
+                    "description": "Custom guideline #2 for PromptGenerationSkill"
+                },
+                "PROMPT_GENERATION_SKILL_MODEL": {
+                    "type": "string",
+                    "description": "Model override for PromptGenerationSkill"
+                },
+                "PROMPT_GENERATION_SKILL_RULE_0": {
+                    "type": "string",
+                    "description": "Custom CRITICAL rule #0 for PromptGenerationSkill"
+                },
+                "PROMPT_GENERATION_SKILL_RULE_1": {
+                    "type": "string",
+                    "description": "Custom CRITICAL rule #1 for PromptGenerationSkill"
+                },
+                "PROMPT_GENERATION_SKILL_RULE_2": {
+                    "type": "string",
+                    "description": "Custom CRITICAL rule #2 for PromptGenerationSkill"
+                },
                 "PROMPT_MASTER_GUIDELINE_0": {
                     "type": "string",
                     "description": "Custom guideline #0 for PromptMaster"
@@ -1422,6 +1625,34 @@
                 "QWEN_MASTER_MODEL": {
                     "type": "string",
                     "description": "Default model for Qwen CLI agents"
+                },
+                "REPO_BOUNDARY_PREFLIGHT_SKILL_GUIDELINE_0": {
+                    "type": "string",
+                    "description": "Custom guideline #0 for RepoBoundaryPreflightSkill"
+                },
+                "REPO_BOUNDARY_PREFLIGHT_SKILL_GUIDELINE_1": {
+                    "type": "string",
+                    "description": "Custom guideline #1 for RepoBoundaryPreflightSkill"
+                },
+                "REPO_BOUNDARY_PREFLIGHT_SKILL_GUIDELINE_2": {
+                    "type": "string",
+                    "description": "Custom guideline #2 for RepoBoundaryPreflightSkill"
+                },
+                "REPO_BOUNDARY_PREFLIGHT_SKILL_MODEL": {
+                    "type": "string",
+                    "description": "Model override for RepoBoundaryPreflightSkill"
+                },
+                "REPO_BOUNDARY_PREFLIGHT_SKILL_RULE_0": {
+                    "type": "string",
+                    "description": "Custom CRITICAL rule #0 for RepoBoundaryPreflightSkill"
+                },
+                "REPO_BOUNDARY_PREFLIGHT_SKILL_RULE_1": {
+                    "type": "string",
+                    "description": "Custom CRITICAL rule #1 for RepoBoundaryPreflightSkill"
+                },
+                "REPO_BOUNDARY_PREFLIGHT_SKILL_RULE_2": {
+                    "type": "string",
+                    "description": "Custom CRITICAL rule #2 for RepoBoundaryPreflightSkill"
                 },
                 "SCRIPT_MASTER_GUIDELINE_0": {
                     "type": "string",
@@ -1535,6 +1766,46 @@
                     "type": "string",
                     "description": "Custom CRITICAL rule #2 for SequentialThinkingMcp"
                 },
+                "SKILLS_BRAIN_PROMPT_DSL_GENERATION_NATIVE_SKILL_DISABLE": {
+                    "type": "string",
+                    "description": "Disable BrainPromptDslGenerationNativeSkill from compilation (true/false)"
+                },
+                "SKILLS_CLIENT_FORMAT_TRIAGE_SKILL_DISABLE": {
+                    "type": "string",
+                    "description": "Disable ClientFormatTriageSkill from compilation (true/false)"
+                },
+                "SKILLS_DOCS_TRUTH_SYNC_SKILL_DISABLE": {
+                    "type": "string",
+                    "description": "Disable DocsTruthSyncSkill from compilation (true/false)"
+                },
+                "SKILLS_EVIDENCE_PACK_BUILDER_SKILL_DISABLE": {
+                    "type": "string",
+                    "description": "Disable EvidencePackBuilderSkill from compilation (true/false)"
+                },
+                "SKILLS_HEALTH_CHECK_SKILL_DISABLE": {
+                    "type": "string",
+                    "description": "Disable HealthCheckSkill from compilation (true/false)"
+                },
+                "SKILLS_PROMPT_GENERATION_SKILL_DISABLE": {
+                    "type": "string",
+                    "description": "Disable PromptGenerationSkill from compilation (true/false)"
+                },
+                "SKILLS_REPO_BOUNDARY_PREFLIGHT_SKILL_DISABLE": {
+                    "type": "string",
+                    "description": "Disable RepoBoundaryPreflightSkill from compilation (true/false)"
+                },
+                "SKILLS_STRUCTURED_REASONING_NATIVE_SKILL_DISABLE": {
+                    "type": "string",
+                    "description": "Disable StructuredReasoningNativeSkill from compilation (true/false)"
+                },
+                "SKILLS_VECTOR_MEMORY_NATIVE_SKILL_DISABLE": {
+                    "type": "string",
+                    "description": "Disable VectorMemoryNativeSkill from compilation (true/false)"
+                },
+                "SKILLS_VECTOR_TASK_NATIVE_SKILL_DISABLE": {
+                    "type": "string",
+                    "description": "Disable VectorTaskNativeSkill from compilation (true/false)"
+                },
                 "STATS_COMMAND_GUIDELINE_0": {
                     "type": "string",
                     "description": "Custom guideline #0 for StatsCommand"
@@ -1618,6 +1889,34 @@
                 "STORE_COMMAND_RULE_2": {
                     "type": "string",
                     "description": "Custom CRITICAL rule #2 for StoreCommand"
+                },
+                "STRUCTURED_REASONING_NATIVE_SKILL_GUIDELINE_0": {
+                    "type": "string",
+                    "description": "Custom guideline #0 for StructuredReasoningNativeSkill"
+                },
+                "STRUCTURED_REASONING_NATIVE_SKILL_GUIDELINE_1": {
+                    "type": "string",
+                    "description": "Custom guideline #1 for StructuredReasoningNativeSkill"
+                },
+                "STRUCTURED_REASONING_NATIVE_SKILL_GUIDELINE_2": {
+                    "type": "string",
+                    "description": "Custom guideline #2 for StructuredReasoningNativeSkill"
+                },
+                "STRUCTURED_REASONING_NATIVE_SKILL_MODEL": {
+                    "type": "string",
+                    "description": "Model override for StructuredReasoningNativeSkill"
+                },
+                "STRUCTURED_REASONING_NATIVE_SKILL_RULE_0": {
+                    "type": "string",
+                    "description": "Custom CRITICAL rule #0 for StructuredReasoningNativeSkill"
+                },
+                "STRUCTURED_REASONING_NATIVE_SKILL_RULE_1": {
+                    "type": "string",
+                    "description": "Custom CRITICAL rule #1 for StructuredReasoningNativeSkill"
+                },
+                "STRUCTURED_REASONING_NATIVE_SKILL_RULE_2": {
+                    "type": "string",
+                    "description": "Custom CRITICAL rule #2 for StructuredReasoningNativeSkill"
                 },
                 "SYNC_COMMAND_GUIDELINE_0": {
                     "type": "string",
@@ -1815,6 +2114,34 @@
                     "type": "string",
                     "description": "Custom CRITICAL rule #2 for VectorMemoryMcp"
                 },
+                "VECTOR_MEMORY_NATIVE_SKILL_GUIDELINE_0": {
+                    "type": "string",
+                    "description": "Custom guideline #0 for VectorMemoryNativeSkill"
+                },
+                "VECTOR_MEMORY_NATIVE_SKILL_GUIDELINE_1": {
+                    "type": "string",
+                    "description": "Custom guideline #1 for VectorMemoryNativeSkill"
+                },
+                "VECTOR_MEMORY_NATIVE_SKILL_GUIDELINE_2": {
+                    "type": "string",
+                    "description": "Custom guideline #2 for VectorMemoryNativeSkill"
+                },
+                "VECTOR_MEMORY_NATIVE_SKILL_MODEL": {
+                    "type": "string",
+                    "description": "Model override for VectorMemoryNativeSkill"
+                },
+                "VECTOR_MEMORY_NATIVE_SKILL_RULE_0": {
+                    "type": "string",
+                    "description": "Custom CRITICAL rule #0 for VectorMemoryNativeSkill"
+                },
+                "VECTOR_MEMORY_NATIVE_SKILL_RULE_1": {
+                    "type": "string",
+                    "description": "Custom CRITICAL rule #1 for VectorMemoryNativeSkill"
+                },
+                "VECTOR_MEMORY_NATIVE_SKILL_RULE_2": {
+                    "type": "string",
+                    "description": "Custom CRITICAL rule #2 for VectorMemoryNativeSkill"
+                },
                 "VECTOR_TASK_MCP_GUIDELINE_0": {
                     "type": "string",
                     "description": "Custom guideline #0 for VectorTaskMcp"
@@ -1842,6 +2169,34 @@
                 "VECTOR_TASK_MCP_RULE_2": {
                     "type": "string",
                     "description": "Custom CRITICAL rule #2 for VectorTaskMcp"
+                },
+                "VECTOR_TASK_NATIVE_SKILL_GUIDELINE_0": {
+                    "type": "string",
+                    "description": "Custom guideline #0 for VectorTaskNativeSkill"
+                },
+                "VECTOR_TASK_NATIVE_SKILL_GUIDELINE_1": {
+                    "type": "string",
+                    "description": "Custom guideline #1 for VectorTaskNativeSkill"
+                },
+                "VECTOR_TASK_NATIVE_SKILL_GUIDELINE_2": {
+                    "type": "string",
+                    "description": "Custom guideline #2 for VectorTaskNativeSkill"
+                },
+                "VECTOR_TASK_NATIVE_SKILL_MODEL": {
+                    "type": "string",
+                    "description": "Model override for VectorTaskNativeSkill"
+                },
+                "VECTOR_TASK_NATIVE_SKILL_RULE_0": {
+                    "type": "string",
+                    "description": "Custom CRITICAL rule #0 for VectorTaskNativeSkill"
+                },
+                "VECTOR_TASK_NATIVE_SKILL_RULE_1": {
+                    "type": "string",
+                    "description": "Custom CRITICAL rule #1 for VectorTaskNativeSkill"
+                },
+                "VECTOR_TASK_NATIVE_SKILL_RULE_2": {
+                    "type": "string",
+                    "description": "Custom CRITICAL rule #2 for VectorTaskNativeSkill"
                 },
                 "WEB_RESEARCH_MASTER_GUIDELINE_0": {
                     "type": "string",
@@ -1902,7 +2257,6 @@
             },
             "examples": [
                 "AGENTS_AGENT_MASTER_DISABLE",
-                "AGENTS_COMMIT_MASTER_DISABLE",
                 "AGENTS_DATABASE_MASTER_DISABLE",
                 "AGENTS_DOCUMENTATION_MASTER_DISABLE",
                 "AGENTS_EXPLORE_MASTER_DISABLE",
@@ -1920,7 +2274,8 @@
                 "AGENT_MASTER_RULE_0",
                 "AGENT_MASTER_RULE_1",
                 "AGENT_MASTER_RULE_2",
-                "ASYNC_COMMAND_GUIDELINE_0"
+                "ASYNC_COMMAND_GUIDELINE_0",
+                "ASYNC_COMMAND_GUIDELINE_1"
             ]
         },
         "envVariablePatterns": {
@@ -2128,9 +2483,10 @@
                         "gpt-5.2-codex",
                         "gpt-5.2-codex-mini",
                         "gpt-5.2",
+                        "gemini-3.1-pro",
+                        "gemini-3.1-pro-preview",
+                        "gemini-3-flash",
                         "gemini-2.5-pro",
-                        "gemini-2.5-flash",
-                        "gemini-2.5-flash-lite",
                         "qwen3-coder-plus",
                         "openai/gpt-oss-20b",
                         "qwen/qwen3-coder-30b",
@@ -2153,7 +2509,7 @@
                         "meta-llama/llama-guard-4-12b",
                         "openai/gpt-oss-120b",
                         "zai-coding-plan/glm-4.7",
-                        "zai-coding-plan/glm-5.0",
+                        "zai-coding-plan/glm-5",
                         "opencode/glm-4.7-free",
                         "opencode/big-pickle",
                         "opencode/grok-code",
@@ -2162,7 +2518,11 @@
                         "anthropic/claude-opus-4-5",
                         "anthropic/claude-sonnet-4-5",
                         "anthropic/claude-haiku-4-5",
-                        "lmstudio/qwen/qwen3-coder-30b",
+                        "lmstudio/qwen/qwen3.5-35b-a3b",
+                        "lmstudio/qwen/qwen3.6-35b-a3b",
+                        "lmstudio/zai-org/glm-4.6v-flash",
+                        "lmstudio/zai-org/glm-4.7-flash",
+                        "lmstudio/google/gemma-4-31b",
                         "lmstudio/deepseek-coder-v2-lite-instruct",
                         "alibaba/qwen3-coder-480b-a35b-instruct",
                         "google/gemini-3-pro-preview",
