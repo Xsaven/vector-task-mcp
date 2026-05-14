@@ -415,7 +415,8 @@ NEVER update parent task status. System propagates automatically."""
         add_tag: str | None = None,
         remove_tag: str | None = None,
         parallel: bool | None = None,
-        code: str | None = None
+        code: str | None = None,
+        init_folder: bool = False
     ) -> dict[str, Any]:
         """
         Update task fields by ID.
@@ -446,6 +447,14 @@ NEVER update parent task status. System propagates automatically."""
                 is renamed at its current lifecycle position (active / -on-review /
                 Archive/). Setting a code on a legacy NULL-code task creates a fresh
                 folder (or adopts an existing folder with that code).
+            init_folder: When True, (re)initialize the on-disk folder for this
+                ROOT task at the lifecycle position matching its FINAL status
+                (i.e. the status after any status update applied in this same
+                call). Useful when the folder was deleted via the empty-template
+                fast-path on completed/done, or when --task-folder was enabled
+                AFTER the task was created. Adopts existing folders (idempotent);
+                no effect for subtasks, NULL-code tasks, or when the feature is
+                disabled. Aggregate position rules still apply across shared codes.
         """
         try:
             # Ensure database is initialized (lazy loading)
@@ -531,7 +540,12 @@ NEVER update parent task status. System propagates automatically."""
             if title is not None or content is not None or tags is not None or add_tag is not None or remove_tag is not None:
                 embedding_model = await task_store.get_embedding_model_async()
 
-            result = task_store.update_task(task_id, embedding_model=embedding_model, **kwargs)
+            result = task_store.update_task(
+                task_id,
+                embedding_model=embedding_model,
+                init_folder=init_folder,
+                **kwargs,
+            )
             return result
 
         except SecurityError as e:

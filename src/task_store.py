@@ -976,6 +976,7 @@ class TaskStore:
         self,
         task_id: int,
         embedding_model: Optional[EmbeddingModel] = None,
+        init_folder: bool = False,
         **kwargs
     ) -> Dict[str, Any]:
         """
@@ -984,6 +985,14 @@ class TaskStore:
         Args:
             task_id: Task ID to update
             embedding_model: Optional pre-loaded embedding model (for async callers, only used if title/content/tags change)
+            init_folder: When True, (re)initialize the on-disk folder for this
+                ROOT task at the lifecycle position matching its FINAL status
+                (after any status update in the same call). Used to recover
+                folders that were deleted via the empty-template fast-path
+                or never created (e.g. --task-folder enabled after task
+                creation). Idempotent: adopts existing folders at any
+                position. No-op for subtasks, NULL-code tasks, or when the
+                folder feature is disabled.
             **kwargs: Fields to update (title, content, status, parent_id, start_at, finish_at)
 
         Returns:
@@ -1384,6 +1393,41 @@ class TaskStore:
                         task_id, task_code, new_code_value, e, exc_info=True,
                     )
 
+            # FS side-effect: explicit folder (re)initialisation. Triggered
+            # by the `init_folder=True` flag. Resolves the FINAL code
+            # (after any rename in this call) and FINAL status, then ensures
+            # the folder exists at the lifecycle position matching that
+            # status. Adopts orphan folders; recreates if previously deleted
+            # via the empty-template fast-path. Aggregate sync afterwards
+            # respects shared-code peers.
+            if (
+                init_folder
+                and self.folder_mgr is not None
+                and task_parent_id is None
+            ):
+                final_code = (
+                    new_code_value
+                    if 'code' in validated_kwargs and new_code_value is not None
+                    else task_code
+                )
+                final_status = validated_kwargs.get('status', existing[3])
+                if final_code:
+                    try:
+                        self.folder_mgr.ensure_folder_for_status(
+                            final_code, existing[1], task_id, final_status
+                        )
+                        # skip_empty_delete: an explicit init must not see
+                        # the folder it just (re)created get deleted by the
+                        # empty-template fast-path in the same call.
+                        self._sync_code_folder_position(
+                            conn, final_code, skip_empty_delete=True
+                        )
+                    except Exception as e:
+                        logger.warning(
+                            "init_folder failed for task %s (%r): %s",
+                            task_id, final_code, e, exc_info=True,
+                        )
+
             # Fetch updated task
             result = conn.execute("""
                 SELECT id, parent_id, status, priority, title, content, comment, tags, created_at, start_at, finish_at, content_hash, estimate, "order", time_spent, parallel, tag_variants, code
@@ -1626,7 +1670,10 @@ class TaskStore:
         return None
 
     def _sync_code_folder_position(
-        self, conn: sqlite3.Connection, code: Optional[str]
+        self,
+        conn: sqlite3.Connection,
+        code: Optional[str],
+        skip_empty_delete: bool = False,
     ) -> None:
         """Reposition the on-disk folder for ``code`` per the aggregate rule.
 
@@ -1640,6 +1687,10 @@ class TaskStore:
         outright instead of renaming it. Prevents accumulating empty
         ``-on-review/`` and ``Archive/`` shells for tasks where no work
         product was added.
+
+        ``skip_empty_delete`` suppresses that optimisation — used by the
+        ``init_folder`` flow so a just-(re)created folder is not deleted on
+        the very next aggregate sync that runs after creation.
         """
         if not code or self.folder_mgr is None:
             return
@@ -1648,7 +1699,7 @@ class TaskStore:
             if target is None:
                 return
 
-            if target in ("on-review", "archive"):
+            if not skip_empty_delete and target in ("on-review", "archive"):
                 # Try each task in the code group as a possible "owner" of
                 # the rendered template; if any matches, the folder holds
                 # nothing user-added.
