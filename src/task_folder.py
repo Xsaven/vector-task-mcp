@@ -24,12 +24,44 @@ raising — keeps custom templates resilient to typos.
 """
 
 import logging
+import re
 import shutil
 import string
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 from typing import List, Optional
+
+
+# Known placeholders for task.md live-substitution. The regex matches
+# ONLY these exact tokens; unrelated curly-brace content (JSON snippets,
+# code samples, raw template vars added by the user) is left untouched.
+_PLACEHOLDER_NAMES = ("task.title", "task.id", "task.code", "date", "datetime")
+_PLACEHOLDER_RE = re.compile(
+    r"\{(" + "|".join(re.escape(n) for n in _PLACEHOLDER_NAMES) + r")\}"
+)
+
+
+def _substitute_placeholders(
+    content: str, title: str, task_id: int, code: Optional[str]
+) -> str:
+    """Regex-based substitution of known ``{task.*}`` / ``{date}`` /
+    ``{datetime}`` tokens in arbitrary text.
+
+    Safer than :func:`str.format` for files that may contain unrelated
+    curly braces — only EXACT known tokens are substituted; everything
+    else (including unknown placeholders like ``{task.priority}``) is
+    left untouched, byte-for-byte.
+    """
+    now = datetime.now()
+    values = {
+        "task.title": title,
+        "task.id": str(task_id),
+        "task.code": code or "",
+        "date": now.strftime("%Y-%m-%d"),
+        "datetime": now.isoformat(timespec="seconds"),
+    }
+    return _PLACEHOLDER_RE.sub(lambda m: values[m.group(1)], content)
 
 logger = logging.getLogger(__name__)
 
@@ -351,6 +383,45 @@ class TaskFolderManager:
             return True
         except Exception:
             logger.warning("rename_on_done failed for code=%r", code, exc_info=True)
+            return False
+
+    def refresh_placeholders(self, code: str, title: str, task_id: int) -> bool:
+        """Substitute known placeholder tokens in the folder's ``task.md``.
+
+        Walks the existing folder (any lifecycle position), reads ``task.md``,
+        and replaces any literal ``{task.title}``, ``{task.id}``,
+        ``{task.code}``, ``{date}``, ``{datetime}`` tokens with current
+        values. Returns ``True`` when content changed and was written back;
+        ``False`` otherwise.
+
+        Used by the ``task_update`` hook to keep user-added placeholders in
+        sync — e.g. the user pastes ``{task.id}`` into their notes during
+        development and the next update materialises it.
+
+        Uses a regex-based substitution rather than :func:`str.format` so
+        unrelated curly-brace content (JSON, code samples) is preserved
+        byte-for-byte. No-op when the folder or ``task.md`` is missing.
+        Never raises — failures are logged.
+        """
+        try:
+            folder = self._resolve_existing_folder(code)
+            if folder is None:
+                return False
+            task_md = folder / "task.md"
+            if not task_md.is_file():
+                return False
+
+            original = task_md.read_text(encoding="utf-8")
+            replaced = _substitute_placeholders(original, title, task_id, code)
+            if replaced == original:
+                return False
+
+            task_md.write_text(replaced, encoding="utf-8")
+            return True
+        except Exception:
+            logger.warning(
+                "refresh_placeholders failed for code=%r", code, exc_info=True
+            )
             return False
 
     def delete_if_empty_template(

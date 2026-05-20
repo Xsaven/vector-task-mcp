@@ -1428,6 +1428,33 @@ class TaskStore:
                             task_id, final_code, e, exc_info=True,
                         )
 
+            # FS side-effect: refresh placeholder tokens in task.md after
+            # every update. Lets the user paste {task.id} / {task.title} /
+            # {task.code} / {date} / {datetime} into their notes mid-flight
+            # and have them materialised on the next save. Best-effort
+            # (delete fast-path may have removed the folder; the refresh is
+            # a no-op in that case).
+            if self.folder_mgr is not None and task_parent_id is None:
+                final_code_for_refresh = (
+                    new_code_value
+                    if 'code' in validated_kwargs and new_code_value is not None
+                    else task_code
+                )
+                final_title_for_refresh = validated_kwargs.get('title', existing[1])
+                if final_code_for_refresh:
+                    try:
+                        self.folder_mgr.refresh_placeholders(
+                            final_code_for_refresh,
+                            final_title_for_refresh,
+                            task_id,
+                        )
+                    except Exception as e:
+                        logger.warning(
+                            "refresh_placeholders hook failed for task %s "
+                            "(%r): %s", task_id, final_code_for_refresh, e,
+                            exc_info=True,
+                        )
+
             # Fetch updated task
             result = conn.execute("""
                 SELECT id, parent_id, status, priority, title, content, comment, tags, created_at, start_at, finish_at, content_hash, estimate, "order", time_spent, parallel, tag_variants, code
